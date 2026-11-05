@@ -1,0 +1,6 @@
+# Produção: sem dados de exemplo e sem documentação pública
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

@@ -1,0 +1,13 @@
+# Desenvolvimento: inclui os dados de exemplo
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/dev
+
+gearhub:
+  crypto:
+    # Chaves só de desenvolvimento. Produção usa outras, por variável de ambiente.
+    aes-key: hZHs8cPGylD+6bustJxjnfP7+NY9NeMcNekCnC5qNXs=
+    hmac-key: EeDjNQ+GJrga9v/sJXv9sqLV4/8yc2Vbe6fEgSHXfMY=
+  auth:
+    secure-cookie: false
+    allowed-origins: http://localhost:3000,http://localhost:8080

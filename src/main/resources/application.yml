@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: gearhub-api
+  profiles:
+    default: dev
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/gearhub}
+    username: ${DATABASE_USERNAME:gearhub}
+    password: ${DATABASE_PASSWORD:gearhub}
+  jpa:
+    # O schema é responsabilidade do Flyway: o Hibernate só confere se bate
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
+
+server:
+  port: ${PORT:8080}
+  # Atrás de proxy (Nuxt em dev, balanceador em produção)
+  forward-headers-strategy: framework
+  tomcat:
+    # Lê uploads grandes até o fim para conseguir responder com a mensagem de erro
+    max-swallow-size: 10MB
+
+gearhub:
+  crypto:
+    # Sem chaves a API não inicia. Gere com: openssl rand -base64 32
+    aes-key: ${GEARHUB_AES_KEY:}
+    hmac-key: ${GEARHUB_HMAC_KEY:}
+  uploads:
+    dir: ${GEARHUB_UPLOADS_DIR:uploads}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+    token-uri: https://oauth2.googleapis.com/token
+    user-info-uri: https://openidconnect.googleapis.com/v1/userinfo
+    site-url: ${GEARHUB_SITE_URL:http://localhost:3000}
+  auth:
+    secure-cookie: true
+    session-ttl: 30d
+    login-limit-per-minute: 10
+    register-limit-per-minute: 5
+    allowed-origins: ${GEARHUB_ALLOWED_ORIGINS:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha

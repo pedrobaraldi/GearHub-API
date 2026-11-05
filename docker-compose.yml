@@ -1,0 +1,33 @@
+# Serviços locais do GearHub. Portas abertas só nesta máquina.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: gearhub
+      POSTGRES_USER: ${DATABASE_USERNAME:-gearhub}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-gearhub}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-gearhub} -d gearhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gearhub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gearhub-dev}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  postgres-data:
+  minio-data:
