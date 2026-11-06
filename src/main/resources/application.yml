@@ -44,6 +44,13 @@ gearhub:
     token-uri: https://oauth2.googleapis.com/token
     user-info-uri: https://openidconnect.googleapis.com/v1/userinfo
     site-url: ${GEARHUB_SITE_URL:http://localhost:3000}
+  mail:
+    resend-api-key: ${RESEND_API_KEY:}
+    from: ${GEARHUB_MAIL_FROM:GearHub <onboarding@resend.dev>}
+    reset-template: ${RESEND_RESET_TEMPLATE:}
+    api-uri: https://api.resend.com/emails
+    site-url: ${GEARHUB_SITE_URL:http://localhost:3000}
+    required: false
   turnstile:
     secret-key: ${TURNSTILE_SECRET_KEY:}
     verify-uri: https://challenges.cloudflare.com/turnstile/v0/siteverify
@@ -60,6 +67,7 @@ gearhub:
     session-ttl: 30d
     login-limit-per-minute: 10
     register-limit-per-minute: 5
+    reset-limit-per-minute: 5
     allowed-origins: ${GEARHUB_ALLOWED_ORIGINS:}
 
 management:

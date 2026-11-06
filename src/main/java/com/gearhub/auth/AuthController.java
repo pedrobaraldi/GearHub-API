@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -50,18 +51,38 @@ public class AuthController {
     private final AuthService auth;
     private final GoogleAuthService google;
     private final DiscordAuthService discord;
+    private final PasswordResetService passwordReset;
     private final GoogleProperties googleProperties;
     private final CryptoService crypto;
     private final AuthProperties properties;
 
     public AuthController(AuthService auth, GoogleAuthService google, DiscordAuthService discord,
-            GoogleProperties googleProperties, CryptoService crypto, AuthProperties properties) {
+            PasswordResetService passwordReset, GoogleProperties googleProperties, CryptoService crypto,
+            AuthProperties properties) {
         this.auth = auth;
         this.google = google;
         this.discord = discord;
+        this.passwordReset = passwordReset;
         this.googleProperties = googleProperties;
         this.crypto = crypto;
         this.properties = properties;
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Envia o link de redefinição de senha. A resposta é igual com ou sem conta")
+    @ApiResponse(responseCode = "429", description = "Muitas tentativas")
+    public Map<String, String> forgotPassword(
+            @Valid @RequestBody AuthRequests.ForgotPassword body, HttpServletRequest request) {
+        passwordReset.request(body, request.getRemoteAddr());
+        return Map.of("detail", "Se houver uma conta com esse e-mail, enviamos um link para redefinir a senha.");
+    }
+
+    @PostMapping("/reset-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Troca a senha pelo link do e-mail e encerra todas as sessões")
+    @ApiResponse(responseCode = "400", description = "Link inválido, expirado ou senha fora das regras")
+    public void resetPassword(@Valid @RequestBody AuthRequests.ResetPassword body) {
+        passwordReset.reset(body);
     }
 
     @GetMapping("/google/url")

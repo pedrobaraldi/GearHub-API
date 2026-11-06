@@ -9,7 +9,7 @@ API do GearHub em Java com Spring Boot e PostgreSQL. No Windows, use `mvnw.cmd` 
 
 ## Rodar sem Docker
 
-Sobe a API com um Postgres real embutido, já com os dados de exemplo. Os dados são recriados a cada execução.
+Sobe a API com um Postgres real embutido, já com os dados de exemplo. Os dados ficam em `.local-db`, fora do Git; para recomeçar do zero, apague a pasta com a API parada.
 
 ```bash
 ./mvnw spring-boot:test-run -Dspring-boot.run.mainClass=com.gearhub.LocalGearHubApplication

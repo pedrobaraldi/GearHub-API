@@ -12,6 +12,48 @@ public final class AuthRequests {
     private AuthRequests() {
     }
 
+    public record ForgotPassword(
+            @NotBlank(message = "Informe seu e-mail")
+            @Email(message = "E-mail inválido")
+            @Size(max = 254, message = "E-mail muito longo")
+            String email,
+
+            @Schema(description = "Token do Cloudflare Turnstile")
+            String turnstileToken) {
+
+        @Override
+        public String toString() {
+            return "ForgotPassword[]";
+        }
+    }
+
+    public record ResetPassword(
+            @Schema(description = "Token recebido no link do e-mail")
+            @NotBlank(message = "Este link é inválido ou expirou. Peça um novo.")
+            String token,
+
+            @Schema(format = "password")
+            @NotBlank(message = "Crie uma senha")
+            @Size(min = 8, max = 128, message = "A senha deve ter de 8 a 128 caracteres")
+            @StrongPassword
+            String password,
+
+            @Schema(format = "password")
+            @NotBlank(message = "Confirme sua senha")
+            String passwordConfirmation) {
+
+        @Schema(hidden = true)
+        @AssertTrue(message = "As senhas não coincidem")
+        public boolean isPasswordConfirmed() {
+            return passwordConfirmation == null || passwordConfirmation.equals(password);
+        }
+
+        @Override
+        public String toString() {
+            return "ResetPassword[]";
+        }
+    }
+
     public record Register(
             @NotBlank(message = "Informe seu nome")
             @Size(max = 60, message = "Use no máximo 60 caracteres")

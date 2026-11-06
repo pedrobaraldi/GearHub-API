@@ -83,6 +83,11 @@ public class User {
         this.passwordHash = passwordHash;
     }
 
+    public void changePassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.updatedAt = Instant.now();
+    }
+
     public void markEmailVerified() {
         if (emailVerifiedAt == null) {
             emailVerifiedAt = Instant.now();

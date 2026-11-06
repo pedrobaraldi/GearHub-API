@@ -39,3 +39,6 @@ build/
 
 # Fotos enviadas pelos usuarios
 uploads/
+
+# Banco local da execução sem Docker
+.local-db/

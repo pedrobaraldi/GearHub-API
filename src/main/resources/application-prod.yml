@@ -6,5 +6,7 @@ springdoc:
     enabled: false
 
 gearhub:
+  mail:
+    required: true
   turnstile:
     required: true
