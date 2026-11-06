@@ -55,9 +55,11 @@ public class User {
 
     private String role = "user";
 
-    @Column(name = "rank_name")
+    // Nível e patente são mantidos pelo banco: ver a migração V14
+    @Column(name = "rank_name", updatable = false)
     private String rankName = "Explorador";
 
+    @Column(updatable = false)
     private int level = 1;
 
     @Column(name = "is_pro")

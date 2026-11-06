@@ -1,10 +1,13 @@
 package com.gearhub.reviews;
 
+import com.gearhub.config.FieldValidationException;
 import com.gearhub.reviews.ContentResponses.CommentItem;
 import com.gearhub.reviews.ContentResponses.LikeState;
 import com.gearhub.reviews.ContentResponses.SaveState;
+import java.sql.Types;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -76,9 +79,11 @@ public class InteractionService {
                     .param("user", viewerId).param("id", id).query(UUID.class).list());
         }
         return jdbc.sql("""
-                SELECT c.id, c.user_id, c.body, c.like_count, c.created_at,
+                SELECT c.id, c.user_id, c.body, c.like_count, c.created_at, c.parent_id,
+                       t.display_name AS reply_to,
                        u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
                 FROM comments c JOIN users u ON u.id = c.user_id
+                LEFT JOIN users t ON t.id = c.reply_to_user_id
                 WHERE c.%s = :id AND c.deleted_at IS NULL
                 ORDER BY c.created_at LIMIT :limit
                 """.formatted(kind.foreignKey()))
@@ -87,20 +92,43 @@ public class InteractionService {
                     UUID commentId = rs.getObject("id", UUID.class);
                     return new CommentItem(commentId, ContentService.author(rs), rs.getString("body"),
                             rs.getTimestamp("created_at").toInstant(), rs.getInt("like_count"),
-                            liked.contains(commentId), rs.getObject("user_id", UUID.class).equals(viewerId));
+                            liked.contains(commentId), rs.getObject("user_id", UUID.class).equals(viewerId),
+                            rs.getObject("parent_id", UUID.class), rs.getString("reply_to"));
                 })
                 .list();
     }
 
     @Transactional
-    public UUID addComment(ContentKind kind, UUID id, UUID userId, String body) {
+    public UUID addComment(ContentKind kind, UUID id, UUID userId, String body, UUID parentId) {
         content.ownerOf(kind, id);
-        UUID commentId = jdbc.sql("INSERT INTO comments (" + kind.foreignKey() + ", user_id, body) VALUES (:id, :user, :body) RETURNING id")
+        ReplyTarget target = parentId == null ? new ReplyTarget(null, null) : replyTarget(kind, id, parentId);
+        UUID commentId = jdbc.sql("INSERT INTO comments (" + kind.foreignKey()
+                + ", user_id, body, parent_id, reply_to_user_id) VALUES (:id, :user, :body, :parent, :replyTo) RETURNING id")
                 .param("id", id).param("user", userId).param("body", body.strip())
+                .param("parent", target.root(), Types.OTHER).param("replyTo", target.mention(), Types.OTHER)
                 .query(UUID.class).single();
         jdbc.sql("UPDATE " + kind.table() + " SET comment_count = comment_count + 1 WHERE id = :id")
                 .param("id", id).update();
         return commentId;
+    }
+
+    private record ReplyTarget(UUID root, UUID mention) {
+    }
+
+    /** Resposta a uma resposta fica na conversa original e cita a pessoa. */
+    private ReplyTarget replyTarget(ContentKind kind, UUID id, UUID parentId) {
+        return jdbc.sql("""
+                SELECT parent_id, user_id FROM comments
+                WHERE id = :parent AND %s = :id AND deleted_at IS NULL
+                """.formatted(kind.foreignKey()))
+                .param("parent", parentId).param("id", id)
+                .query((rs, row) -> {
+                    UUID root = rs.getObject("parent_id", UUID.class);
+                    return root == null ? new ReplyTarget(parentId, null)
+                            : new ReplyTarget(root, rs.getObject("user_id", UUID.class));
+                })
+                .optional()
+                .orElseThrow(() -> new FieldValidationException(Map.of("parentId", "Comentário não encontrado")));
     }
 
     @Transactional
@@ -116,12 +144,16 @@ public class InteractionService {
         if (!admin && !comment.owner().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Você só pode apagar os seus comentários");
         }
-        jdbc.sql("UPDATE comments SET deleted_at = now() WHERE id = :id").param("id", commentId).update();
+        // Apagar um comentário leva as respostas junto
+        int removed = jdbc.sql("""
+                UPDATE comments SET deleted_at = now()
+                WHERE (id = :id OR parent_id = :id) AND deleted_at IS NULL
+                """).param("id", commentId).update();
 
         ContentKind kind = comment.reviewId() != null ? ContentKind.REVIEW : ContentKind.POST;
         UUID parent = comment.reviewId() != null ? comment.reviewId() : comment.postId();
-        jdbc.sql("UPDATE " + kind.table() + " SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = :id")
-                .param("id", parent).update();
+        jdbc.sql("UPDATE " + kind.table() + " SET comment_count = GREATEST(comment_count - :removed, 0) WHERE id = :id")
+                .param("removed", removed).param("id", parent).update();
     }
 
     private void requireComment(UUID commentId) {

@@ -102,23 +102,23 @@ class ApiBaseIntegrationTest {
         assertThat(mouse.statusCode()).isEqualTo(200);
         assertThat(mouse.body()).contains("\"specFields\"", "\"key\":\"polling_rate\"");
         assertThat(mouse.body()).doesNotContain("Razer", "placeholder");
-        assertThat(mouse.body().indexOf("\"dimensoes\"")).isLessThan(mouse.body().indexOf("\"software\""));
+        assertThat(mouse.body().indexOf("\"modelo\"")).isLessThan(mouse.body().indexOf("\"pegadas\""));
     }
 
     @Test
     void cadaCategoriaTemOsCamposInformados() {
-        assertThat(specFieldCount("mouse")).isEqualTo(17);
-        assertThat(specFieldCount("teclado")).isEqualTo(21);
-        assertThat(specFieldCount("mousepad")).isEqualTo(9);
+        assertThat(specFieldCount("mouse")).isEqualTo(9);
+        assertThat(specFieldCount("teclado")).isEqualTo(8);
+        assertThat(specFieldCount("mousepad")).isEqualTo(8);
+        assertThat(specFieldCount("ssd")).isEqualTo(9);
     }
 
     @Test
-    void fichaTecnicaNaoTemCamposObrigatorios() throws Exception {
-        assertThat(requiredFields("mouse")).isEmpty();
-        assertThat(requiredFields("teclado")).isEmpty();
-        assertThat(requiredFields("mousepad")).isEmpty();
+    void fichaTecnicaSegueOsObrigatoriosDoCatalogo() throws Exception {
+        assertThat(requiredFields("mouse")).containsExactlyInAnyOrder("modelo", "valor", "sensor", "dpi", "peso", "conexao");
+        assertThat(requiredFields("teclado")).containsExactlyInAnyOrder("modelo", "valor", "formato", "tipo_switch", "conexao");
         assertThat(send("GET", "/api/v1/categories/mouse").body())
-                .contains("{\"key\":\"sensor\",\"label\":\"Sensor\",\"required\":false}");
+                .contains("{\"key\":\"sensor\",\"label\":\"Tipo de sensor\",\"required\":true,\"options\":[\"Óptico\",\"Laser\"]}");
     }
 
     private java.util.List<String> requiredFields(String slug) {

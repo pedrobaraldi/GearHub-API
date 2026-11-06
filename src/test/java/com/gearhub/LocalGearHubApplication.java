@@ -11,7 +11,8 @@ import org.springframework.boot.SpringApplication;
  */
 public class LocalGearHubApplication {
 
-    private static final int POSTGRES_PORT = 54329;
+    // Fora da faixa que o Windows sorteia para conexões de saída (49152 em diante)
+    private static final int POSTGRES_PORT = 15432;
     private static final File DATA_DIRECTORY = new File(".local-db");
 
     public static void main(String[] args) throws IOException {

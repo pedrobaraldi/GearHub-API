@@ -84,6 +84,9 @@ public final class ContentRequests {
     public record SaveComment(
             @NotBlank(message = "Escreva o comentário")
             @Size(max = 2000, message = "O comentário deve ter no máximo 2000 caracteres")
-            String body) {
+            String body,
+
+            @Schema(description = "Comentário que está sendo respondido")
+            UUID parentId) {
     }
 }

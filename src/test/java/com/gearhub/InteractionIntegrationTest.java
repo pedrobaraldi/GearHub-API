@@ -98,8 +98,92 @@ class InteractionIntegrationTest {
         return json.deleteCharAt(json.length() - 1).append("}").toString();
     }
 
+    @Test
+    void xpVemDaAtividadeRealEIgnoraCurtidaPropria() throws Exception {
+        Person author = newPerson();
+        Person fan = newPerson();
+        String progress = "/api/v1/users/" + author.username() + "/progress";
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":0", "\"level\":1", "\"rankName\":\"Explorador\"");
+
+        String review = newReview(author, "razer-viper-v3-pro", 8);
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":50");
+
+        assertThat(call("PUT", "/api/v1/reviews/" + review + "/like", null, author.auth()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":50");
+
+        assertThat(call("PUT", "/api/v1/reviews/" + review + "/like", null, fan.auth()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", progress, null, Map.of()).body())
+                .contains("\"xp\":53", "\"key\":\"like\",\"label\":\"Curtida recebida\",\"points\":3,\"count\":1,\"xp\":3");
+
+        call("PUT", "/api/v1/users/" + author.username() + "/follow", null, fan.auth());
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":58");
+
+        for (int i = 0; i < 5; i++) {
+            call("POST", "/api/v1/posts", "{\"body\":\"Post " + i + "\"}", author.auth());
+        }
+        // 108 XP passa dos 100 do nível 2, e o autor no feed acompanha
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":108", "\"level\":2", "\"levelStartXp\":100", "\"nextLevelXp\":300");
+        assertThat(call("GET", "/api/v1/users/" + author.username(), null, Map.of()).body()).contains("\"level\":2");
+
+        // Salvar o perfil não pode sobrescrever o nível calculado
+        assertThat(call("PATCH", "/api/v1/users/me", "{\"bio\":\"Nova bio\"}", author.auth()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"level\":2");
+
+        assertThat(call("DELETE", "/api/v1/reviews/" + review, null, author.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":55", "\"level\":1");
+        assertThat(call("GET", "/api/v1/users/inexistente/progress", null, Map.of()).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void existemCincoPatentesEmOrdem() throws Exception {
+        assertThat(jdbc.queryForList("SELECT name || ':' || min_level FROM ranks ORDER BY min_level", String.class))
+                .containsExactly("Explorador:1", "Analista:5", "Reviewer:10", "Especialista:20", "Lenda:35");
+
+        Person person = newPerson();
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/progress", null, Map.of()).body())
+                .contains("\"name\":\"Explorador\",\"minLevel\":1,\"reached\":true,\"current\":true",
+                        "\"name\":\"Lenda\",\"minLevel\":35,\"reached\":false,\"current\":false");
+    }
+
+    @Test
+    void comentariosTemRespostasEmUmNivel() throws Exception {
+        Person author = newPerson();
+        Person other = newPerson();
+        String review = newReview(author, "lamzu-maya-x", 8);
+        String path = "/api/v1/reviews/" + review + "/comments";
+
+        String first = idIn(call("POST", path, "{\"body\":\"Comentário\"}", author.auth()));
+        HttpResponse<String> reply = call("POST", path, "{\"body\":\"Resposta\",\"parentId\":\"" + first + "\"}", other.auth());
+        assertThat(reply.statusCode()).isEqualTo(201);
+        String replyId = idIn(reply);
+
+        // Responder a uma resposta fica na mesma conversa e cita quem foi respondido
+        String nested = idIn(call("POST", path, "{\"body\":\"Tréplica\",\"parentId\":\"" + replyId + "\"}", author.auth()));
+        String list = call("GET", path, null, Map.of()).body();
+        assertThat(list).contains("\"parentId\":\"" + first + "\"", "\"replyTo\":");
+        assertThat(jdbc.queryForObject("SELECT parent_id::text FROM comments WHERE id = ?::uuid", String.class, nested)).isEqualTo(first);
+        assertThat(jdbc.queryForObject("SELECT comment_count FROM reviews WHERE id = ?::uuid", Integer.class, review)).isEqualTo(3);
+
+        // Resposta de outra publicação não é aceita
+        String otherReview = newReview(author, "razer-viper-v3-pro", 8);
+        assertThat(call("POST", "/api/v1/reviews/" + otherReview + "/comments",
+                "{\"body\":\"Errado\",\"parentId\":\"" + first + "\"}", other.auth()).statusCode()).isEqualTo(400);
+
+        assertThat(call("DELETE", "/api/v1/comments/" + first, null, author.auth()).statusCode()).isEqualTo(204);
+        assertThat(jdbc.queryForObject("SELECT comment_count FROM reviews WHERE id = ?::uuid", Integer.class, review)).isZero();
+        assertThat(call("GET", path, null, Map.of()).body()).isEqualTo("[]");
+    }
+
+    @Test
+    void dadosDeExemploNaoTemCurtidasInventadas() {
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM reviews r
+                WHERE r.like_count <> (SELECT count(*) FROM review_likes l WHERE l.review_id = r.id)
+                """, Integer.class)).isZero();
+    }
+
     private static final String SPECS =
-            "{\"modelo\":\"M\",\"formato\":\"F\",\"peso\":\"P\",\"sensor\":\"S\",\"conexao\":\"C\"}";
+            "{\"modelo\":\"M\",\"valor\":\"R$ 500\",\"sensor\":\"Óptico\",\"dpi\":\"26000\",\"peso\":\"60\",\"conexao\":\"USB\"}";
 
     private String newReview(Person author, String slug, int value) throws Exception {
         String product = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = ?", String.class, slug);
@@ -162,7 +246,7 @@ class InteractionIntegrationTest {
         assertThat(draft).contains("Review original", "\"modelo\":\"M\"", "Bom");
 
         HttpResponse<String> semNotas = call("PATCH", "/api/v1/reviews/" + review,
-                "{\"title\":\"Sem notas\"}", author.auth());
+                "{\"title\":\"Sem notas\",\"specs\":" + SPECS + "}", author.auth());
         assertThat(semNotas.statusCode()).isEqualTo(204);
 
         assertThat(call("PATCH", "/api/v1/reviews/" + review, """
