@@ -28,22 +28,26 @@ public class AuthService {
     private final CryptoService crypto;
     private final RateLimiter rateLimiter;
     private final AuthProperties properties;
+    private final TurnstileService turnstile;
     private final String dummyHash;
 
     public AuthService(UserRepository users, SessionRepository sessions, PasswordEncoder passwords,
-            CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties) {
+            CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties,
+            TurnstileService turnstile) {
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
         this.crypto = crypto;
         this.rateLimiter = rateLimiter;
         this.properties = properties;
+        this.turnstile = turnstile;
         this.dummyHash = passwords.encode(crypto.newToken());
     }
 
     @Transactional
     public AuthResult register(AuthRequests.Register request, String ip, String userAgent) {
         rateLimiter.check("register:" + ip, properties.registerLimitPerMinute());
+        turnstile.verify(request.turnstileToken());
 
         String email = normalizeEmail(request.email());
         String emailHash = crypto.blindIndex(email);
@@ -70,6 +74,7 @@ public class AuthService {
         String emailHash = crypto.blindIndex(normalizeEmail(request.email()));
         rateLimiter.check("login-ip:" + ip, properties.loginLimitPerMinute());
         rateLimiter.check("login-account:" + emailHash, properties.loginLimitPerMinute());
+        turnstile.verify(request.turnstileToken());
 
         User user = users.findByEmailHashAndDeletedAtIsNull(emailHash).orElse(null);
         String storedHash = user == null || user.getPasswordHash() == null ? dummyHash : user.getPasswordHash();
@@ -82,7 +87,7 @@ public class AuthService {
     }
 
     @Transactional
-    public String openGoogleSession(User user, String ip, String userAgent) {
+    public String openOAuthSession(User user, String ip, String userAgent) {
         return openSession(user, ip, userAgent);
     }
 

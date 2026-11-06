@@ -4,3 +4,7 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+gearhub:
+  turnstile:
+    required: true

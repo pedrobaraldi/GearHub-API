@@ -15,6 +15,8 @@ Sobe a API com um Postgres real embutido, já com os dados de exemplo. Os dados 
 ./mvnw spring-boot:test-run -Dspring-boot.run.mainClass=com.gearhub.LocalGearHubApplication
 ```
 
+Para ativar o login com Google e Discord nessa execução, copie `.env.example` para `.env` e preencha as credenciais. O `.env` fica fora do Git.
+
 ## Rodar com Docker
 
 ```bash

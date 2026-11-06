@@ -25,6 +25,7 @@ public class LocalGearHubApplication {
         System.setProperty("spring.datasource.url", postgres.getJdbcUrl("postgres", "postgres"));
         System.setProperty("spring.datasource.username", "postgres");
         System.setProperty("spring.datasource.password", "postgres");
+        System.setProperty("spring.config.import", "optional:file:.env[.properties]");
         SpringApplication.run(GearhubApiApplication.class, args);
     }
 }

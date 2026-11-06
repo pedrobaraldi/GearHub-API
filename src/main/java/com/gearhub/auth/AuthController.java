@@ -2,6 +2,7 @@ package com.gearhub.auth;
 
 import com.gearhub.config.OpenApiConfig;
 import com.gearhub.crypto.CryptoService;
+import com.gearhub.users.User;
 import com.gearhub.users.UserResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -15,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -36,22 +38,27 @@ public class AuthController {
 
     private static final String STATE_COOKIE = "gearhub_oauth_state";
 
-    /** Mensagens do retorno do Google: o site recebe só o código e pede o texto aqui. */
+    /** Mensagens do login social: o site recebe só o código e pede o texto aqui. */
     private static final Map<String, String> LOGIN_ERRORS = Map.of(
             GoogleAuthService.ERROR_FAILED, "Não conseguimos entrar com o Google. Tente novamente.",
             GoogleAuthService.ERROR_UNVERIFIED, "Sua conta Google não tem o e-mail confirmado.",
-            "google-cancelado", "O login com Google foi cancelado.");
+            "google-cancelado", "O login com Google foi cancelado.",
+            DiscordAuthService.ERROR_FAILED, "Não conseguimos entrar com o Discord. Tente novamente.",
+            DiscordAuthService.ERROR_UNVERIFIED, "Confirme o e-mail da sua conta Discord e tente novamente.",
+            "discord-cancelado", "O login com Discord foi cancelado.");
 
     private final AuthService auth;
     private final GoogleAuthService google;
+    private final DiscordAuthService discord;
     private final GoogleProperties googleProperties;
     private final CryptoService crypto;
     private final AuthProperties properties;
 
-    public AuthController(AuthService auth, GoogleAuthService google, GoogleProperties googleProperties,
-            CryptoService crypto, AuthProperties properties) {
+    public AuthController(AuthService auth, GoogleAuthService google, DiscordAuthService discord,
+            GoogleProperties googleProperties, CryptoService crypto, AuthProperties properties) {
         this.auth = auth;
         this.google = google;
+        this.discord = discord;
         this.googleProperties = googleProperties;
         this.crypto = crypto;
         this.properties = properties;
@@ -62,7 +69,18 @@ public class AuthController {
     @ApiResponse(responseCode = "503", description = "Login com Google não configurado")
     public ResponseEntity<Map<String, String>> googleUrl() {
         String state = crypto.newToken();
-        String url = google.authorizationUrl(state);
+        return withStateCookie(state, google.authorizationUrl(state));
+    }
+
+    @GetMapping("/discord/url")
+    @Operation(summary = "Devolve o endereço de login do Discord")
+    @ApiResponse(responseCode = "503", description = "Login com Discord não configurado")
+    public ResponseEntity<Map<String, String>> discordUrl() {
+        String state = crypto.newToken();
+        return withStateCookie(state, discord.authorizationUrl(state));
+    }
+
+    private ResponseEntity<Map<String, String>> withStateCookie(String state, String url) {
         ResponseCookie cookie = ResponseCookie.from(STATE_COOKIE, state)
                 .httpOnly(true).secure(properties.secureCookie()).sameSite("Lax").path("/")
                 .maxAge(Duration.ofMinutes(10)).build();
@@ -82,14 +100,34 @@ public class AuthController {
         if (code == null || !sameState(state, stateCookie(request))) {
             return redirectWithError(GoogleAuthService.ERROR_FAILED);
         }
+        return finishLogin(() -> google.authenticate(code), request);
+    }
+
+    @GetMapping("/discord/callback")
+    @Operation(summary = "Retorno do Discord: inicia a sessão e volta ao site")
+    public ResponseEntity<Void> discordCallback(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            HttpServletRequest request) {
+        if (error != null) {
+            return redirectWithError("discord-cancelado");
+        }
+        if (code == null || !sameState(state, stateCookie(request))) {
+            return redirectWithError(DiscordAuthService.ERROR_FAILED);
+        }
+        return finishLogin(() -> discord.authenticate(code), request);
+    }
+
+    private ResponseEntity<Void> finishLogin(Supplier<User> authenticate, HttpServletRequest request) {
         try {
-            String token = auth.openGoogleSession(google.authenticate(code), request.getRemoteAddr(),
+            String token = auth.openOAuthSession(authenticate.get(), request.getRemoteAddr(),
                     request.getHeader("User-Agent"));
             return ResponseEntity.status(HttpStatus.FOUND)
                     .location(URI.create(googleProperties.siteUrl() + "/"))
                     .header(HttpHeaders.SET_COOKIE, sessionCookie(token, properties.sessionTtl()).toString())
                     .build();
-        } catch (GoogleAuthService.GoogleLoginException e) {
+        } catch (OAuthLoginException e) {
             return redirectWithError(e.code());
         }
     }

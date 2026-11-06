@@ -83,6 +83,10 @@ class ContentIntegrationTest {
         registry.add("gearhub.google.client-secret", () -> "segredo-teste");
         registry.add("gearhub.google.token-uri", () -> google + "/token");
         registry.add("gearhub.google.user-info-uri", () -> google + "/userinfo");
+        registry.add("gearhub.discord.client-id", () -> "discord-teste");
+        registry.add("gearhub.discord.client-secret", () -> "segredo-discord");
+        registry.add("gearhub.discord.token-uri", () -> google + "/token");
+        registry.add("gearhub.discord.user-info-uri", () -> google + "/userinfo");
     }
 
     @AfterAll
@@ -287,6 +291,73 @@ class ContentIntegrationTest {
         Integer before = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
         call("GET", "/api/v1/auth/google/callback?code=abc&state=" + value, null, Map.of("Cookie", state));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(before);
+    }
+
+    private String startDiscordLogin() throws Exception {
+        HttpResponse<String> url = call("GET", "/api/v1/auth/discord/url", null, Map.of());
+        assertThat(url.statusCode()).isEqualTo(200);
+        assertThat(url.body()).contains("discord.com/oauth2/authorize", "discord-teste", "identify%20email");
+        return url.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
+    }
+
+    private HttpResponse<String> discordCallback(String stateCookie) throws Exception {
+        return call("GET", "/api/v1/auth/discord/callback?code=abc&state=" + stateCookie.split("=", 2)[1], null,
+                Map.of("Cookie", stateCookie));
+    }
+
+    @Test
+    void discordCriaContaEDepoisReconhece() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        googleProfile = """
+                {"id":"%s","username":"pessoa","global_name":"Conta Discord","email":"d%s@exemplo.com","verified":true}
+                """.formatted(id, id);
+
+        HttpResponse<String> callback = discordCallback(startDiscordLogin());
+        assertThat(callback.statusCode()).isEqualTo(302);
+        String session = callback.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
+        assertThat(call("GET", "/api/v1/auth/me", null, Map.of("Cookie", session)).body())
+                .contains("Conta Discord", "\"emailVerified\":true");
+
+        discordCallback(startDiscordLogin());
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM oauth_accounts o JOIN users u ON u.id = o.user_id
+                WHERE o.provider = 'discord' AND u.username = ?
+                """, Integer.class, "d" + id)).isEqualTo(1);
+    }
+
+    @Test
+    void discordLigaAContaDoGoogleComOMesmoEmail() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String email = "m" + id + "@exemplo.com";
+        googleProfile = "{\"sub\":\"%s\",\"email\":\"%s\",\"email_verified\":true,\"name\":\"Mesma Pessoa\"}".formatted(id, email);
+        String state = startGoogleLogin();
+        call("GET", "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1], null, Map.of("Cookie", state));
+
+        googleProfile = "{\"id\":\"%s\",\"username\":\"outro\",\"email\":\"%s\",\"verified\":true}".formatted(id, email);
+        discordCallback(startDiscordLogin());
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(DISTINCT user_id) FROM oauth_accounts o JOIN users u ON u.id = o.user_id
+                WHERE u.username = ?
+                """, Integer.class, "m" + id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM oauth_accounts o JOIN users u ON u.id = o.user_id WHERE u.username = ?
+                """, Integer.class, "m" + id)).isEqualTo(2);
+    }
+
+    @Test
+    void discordRecusaEstadoFalsoECancelamentoEEmailNaoConfirmado() throws Exception {
+        String state = startDiscordLogin();
+        assertThat(call("GET", "/api/v1/auth/discord/callback?code=abc&state=forjado", null, Map.of("Cookie", state))
+                .headers().firstValue("location").orElseThrow()).endsWith("/auth?erro=discord-falhou");
+        assertThat(call("GET", "/api/v1/auth/discord/callback?error=access_denied", null, Map.of())
+                .headers().firstValue("location").orElseThrow()).endsWith("/auth?erro=discord-cancelado");
+
+        googleProfile = "{\"id\":\"sem-email\",\"username\":\"x\",\"email\":\"x@exemplo.com\",\"verified\":false}";
+        assertThat(discordCallback(state).headers().firstValue("location").orElseThrow())
+                .endsWith("/auth?erro=discord-email-nao-verificado");
+        assertThat(call("GET", "/api/v1/auth/errors/discord-email-nao-verificado", null, Map.of()).body())
+                .contains("Confirme o e-mail da sua conta Discord");
     }
 
     @Test

@@ -34,7 +34,10 @@ public final class AuthRequests {
 
             @Schema(format = "password")
             @NotBlank(message = "Confirme sua senha")
-            String passwordConfirmation) {
+            String passwordConfirmation,
+
+            @Schema(description = "Token do Cloudflare Turnstile")
+            String turnstileToken) {
 
         @Schema(hidden = true)
         @AssertTrue(message = "As senhas não coincidem")
@@ -56,7 +59,10 @@ public final class AuthRequests {
             @Schema(format = "password")
             @NotBlank(message = "Informe sua senha")
             @Size(max = 128, message = "Senha muito longa")
-            String password) {
+            String password,
+
+            @Schema(description = "Token do Cloudflare Turnstile")
+            String turnstileToken) {
 
         @Override
         public String toString() {
