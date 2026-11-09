@@ -15,7 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.gearhub.market.MarketCollector;
+import com.gearhub.market.MarketProperties;
+import com.gearhub.market.SteamClient;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -35,6 +41,12 @@ class InteractionIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private JdbcClient jdbcClient;
+
+    @Autowired
+    private MarketProperties marketProperties;
 
     private static EmbeddedPostgres startPostgres() {
         try {
@@ -227,6 +239,63 @@ class InteractionIntegrationTest {
 
         // Vazio volta ao automático
         assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"\"}", person.auth()).body()).contains("\"ringStyle\":null");
+    }
+
+    @Test
+    void abaGamesListaDetalhaEMostraHistorico() throws Exception {
+        HttpResponse<String> list = call("GET", "/api/v1/market/games", null, Map.of());
+        assertThat(list.statusCode()).isEqualTo(200);
+        assertThat(list.body()).contains("\"appid\":730", "\"name\":\"Counter-Strike 2\"");
+
+        jdbc.update("UPDATE market_games SET discount_percent = 90, final_cents = 1000, initial_cents = 10000, currency = 'BRL' WHERE steam_appid = 892970");
+        assertThat(call("GET", "/api/v1/market/games?sort=discount", null, Map.of()).body()).startsWith("[{\"appid\":892970");
+        assertThat(call("GET", "/api/v1/market/games?q=valhe", null, Map.of()).body()).contains("892970").doesNotContain("\"appid\":730");
+
+        jdbc.update("INSERT INTO market_price_snapshots (steam_appid, taken_at, currency, initial_cents, final_cents, discount_percent) VALUES (892970, now() - interval '40 days', 'BRL', 10000, 10000, 0), (892970, now() - interval '2 days', 'BRL', 10000, 1000, 90)");
+        jdbc.update("INSERT INTO market_player_snapshots (steam_appid, taken_at, players) VALUES (892970, now() - interval '3 hours', 5000), (892970, now() - interval '1 hour', 7000)");
+
+        HttpResponse<String> detail = call("GET", "/api/v1/market/games/892970", null, Map.of());
+        assertThat(detail.body()).contains("\"lowestCents\":1000", "\"peakPlayers24h\":7000", "\"peakPlayersAll\":7000");
+
+        // 30 dias: o preço de antes do intervalo abre a linha, e a queda aparece depois
+        HttpResponse<String> history = call("GET", "/api/v1/market/games/892970/history?range=30d", null, Map.of());
+        assertThat(history.body()).contains("\"range\":\"30d\"", "\"finalCents\":10000", "\"finalCents\":1000", "\"players\":7000");
+
+        assertThat(call("GET", "/api/v1/market/games/1", null, Map.of()).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void coletaGravaPrecoSoQuandoMuda() throws Exception {
+        // Steam falsa: os testes nunca chamam a Steam de verdade
+        int[] price = {5000};
+        SteamClient steam = new SteamClient(marketProperties) {
+            @Override
+            public Optional<Details> details(int appid) {
+                return Optional.of(new Details("Terraria", null, "Cave", "Re-Logic", List.of("Ação", "Aventura"), "16 mai. 2011",
+                        false, new Price("BRL", 5000, price[0], price[0] < 5000 ? 50 : 0)));
+            }
+
+            @Override
+            public Optional<Integer> currentPlayers(int appid) {
+                return Optional.of(30000);
+            }
+
+            @Override
+            public Optional<Reviews> reviews(int appid) {
+                return Optional.of(new Reviews(970, 30, "Extremamente positivas"));
+            }
+        };
+        MarketCollector collector = new MarketCollector(jdbcClient, steam, marketProperties);
+
+        assertThat(collector.collect(105600)).isTrue();
+        assertThat(collector.collect(105600)).isTrue();
+        price[0] = 2500;
+        assertThat(collector.collect(105600)).isTrue();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM market_price_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM market_player_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(3);
+        assertThat(call("GET", "/api/v1/market/games/105600", null, Map.of()).body())
+                .contains("\"finalCents\":2500", "\"discountPercent\":50", "\"reviewPercent\":97", "\"genres\":[\"Ação\",\"Aventura\"]");
     }
 
     @Test
