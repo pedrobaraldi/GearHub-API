@@ -508,7 +508,7 @@ public class ContentService {
                         GROUP BY r.specs ->> f.key
                         ORDER BY count(*) DESC, max(r.created_at) DESC LIMIT 1) AS value
                 FROM spec_fields f JOIN products p ON p.category_id = f.category_id
-                WHERE p.slug = :slug AND f.key <> 'modelo'
+                WHERE p.slug = :slug
                 ORDER BY f.position
                 """)
                 .param("slug", slug)

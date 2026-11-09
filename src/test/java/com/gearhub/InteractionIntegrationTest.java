@@ -330,8 +330,7 @@ class InteractionIntegrationTest {
 
         // A página do produto mostra só o que os reviewers preencheram na ficha
         assertThat(call("GET", "/api/v1/products/pulsar-x2-mini-acao", null, Map.of()).body())
-                .contains("\"label\":\"Tipo de sensor\",\"value\":\"Óptico\"", "\"about\":null")
-                .doesNotContain("\"label\":\"Modelo\"");
+                .contains("\"label\":\"Modelo\",\"value\":\"M\"", "\"label\":\"Tipo de sensor\",\"value\":\"Óptico\"", "\"about\":null");
     }
 
     @Test
