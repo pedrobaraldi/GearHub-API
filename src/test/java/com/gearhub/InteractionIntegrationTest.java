@@ -299,6 +299,37 @@ class InteractionIntegrationTest {
     }
 
     @Test
+    void reviewPorMarcaEModeloUsaOProdutoQueJaExisteOuCriaUmNovo() throws Exception {
+        Person first = newPerson();
+        Person second = newPerson();
+        String review = """
+                {"category":"mouse","brand":"%s","model":"%s","title":"Review","body":"Texto com tamanho suficiente",
+                 "scores":%s,"specs":%s}
+                """;
+
+        // Produto que já está no catálogo: escrito com outra caixa, espaços extras e a marca no modelo
+        String existing = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'razer-viper-v3-pro'", String.class);
+        int before = jdbc.queryForObject("SELECT count(*) FROM products", Integer.class);
+        HttpResponse<String> joined = call("POST", "/api/v1/reviews",
+                review.formatted("razer", "Razer  viper v3 PRO", scores("mouse", 8), SPECS), first.auth());
+        assertThat(joined.statusCode()).as(joined.body()).isEqualTo(201);
+        assertThat(jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(joined))).isEqualTo(existing);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isEqualTo(before);
+
+        // Produto novo: é criado, e a próxima review do mesmo modelo entra nele
+        HttpResponse<String> created = call("POST", "/api/v1/reviews",
+                review.formatted("Pulsar", "X2 Mini Ação", scores("mouse", 9), SPECS), first.auth());
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+        String newProduct = jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(created));
+        assertThat(jdbc.queryForObject("SELECT slug FROM products WHERE id = ?::uuid", String.class, newProduct)).isEqualTo("pulsar-x2-mini-acao");
+
+        HttpResponse<String> again = call("POST", "/api/v1/reviews",
+                review.formatted("PULSAR", "x2 mini ação", scores("mouse", 7), SPECS), second.auth());
+        assertThat(jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(again))).isEqualTo(newProduct);
+        assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, newProduct)).isEqualTo(2);
+    }
+
+    @Test
     void soAdminDaEtiraInsignias() throws Exception {
         Person admin = newPerson();
         Person member = newPerson();

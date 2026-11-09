@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -188,8 +189,9 @@ public class ContentService {
 
     @Transactional
     public UUID createReview(UUID userId, ContentRequests.CreateReview request) {
+        UUID productId = request.productId() != null ? request.productId() : findOrCreateProduct(request);
         Map<String, Object> product = jdbc.sql("SELECT category_id, image_url FROM products WHERE id = :id")
-                .param("id", request.productId())
+                .param("id", productId)
                 .query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new FieldValidationException(Map.of("productId", "Produto não encontrado")));
 
@@ -203,7 +205,7 @@ public class ContentService {
                             cast(:specs AS jsonb)) RETURNING id
                     """)
                     .param("user", userId)
-                    .param("product", request.productId())
+                    .param("product", productId)
                     .param("title", blankToNull(request.title()), Types.VARCHAR)
                     .param("body", blankToNull(request.body()), Types.VARCHAR)
                     .param("score", valid.average(), Types.NUMERIC)
@@ -215,8 +217,69 @@ public class ContentService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Você já publicou uma review desse produto");
         }
         writeDetails(reviewId, valid.scores(), request.pros(), request.cons());
-        refreshProductScore(request.productId());
+        refreshProductScore(productId);
         return reviewId;
+    }
+
+    /**
+     * Produto informado por categoria, marca e modelo. Se já existir um igual (sem diferenciar maiúsculas,
+     * espaços extras, ou o modelo escrito com a marca na frente), a review entra nele; senão, ele é criado.
+     */
+    private UUID findOrCreateProduct(ContentRequests.CreateReview request) {
+        Map<String, String> errors = new java.util.LinkedHashMap<>();
+        String brand = tidy(request.brand());
+        String model = tidy(request.model());
+        Integer categoryId = request.category() == null ? null : jdbc.sql("SELECT id FROM categories WHERE slug = :slug")
+                .param("slug", request.category().strip()).query(Integer.class).optional().orElse(null);
+        if (categoryId == null) {
+            errors.put("category", "Escolha a categoria do produto");
+        }
+        if (brand.isEmpty()) {
+            errors.put("brand", "Informe a marca");
+        }
+        if (model.isEmpty()) {
+            errors.put("model", "Informe o modelo");
+        }
+        if (!errors.isEmpty()) {
+            throw new FieldValidationException(errors);
+        }
+        // Quem escreve "Logitech G Pro" no modelo também cai no produto "G Pro" da Logitech
+        if (model.toLowerCase().startsWith(brand.toLowerCase() + " ")) {
+            model = model.substring(brand.length()).strip();
+        }
+
+        Optional<UUID> existing = jdbc.sql("""
+                SELECT id FROM products
+                WHERE category_id = :category
+                  AND lower(regexp_replace(brand, '\\s+', ' ', 'g')) = lower(:brand)
+                  AND lower(regexp_replace(name, '\\s+', ' ', 'g')) IN (lower(:model), lower(:brand || ' ' || :model))
+                ORDER BY review_count DESC LIMIT 1
+                """)
+                .param("category", categoryId).param("brand", brand).param("model", model)
+                .query(UUID.class).optional();
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        String base = slugOf(brand + " " + model);
+        String slug = base;
+        for (int n = 2; jdbc.sql("SELECT count(*) FROM products WHERE slug = :slug").param("slug", slug)
+                .query(Integer.class).single() > 0; n++) {
+            slug = base + "-" + n;
+        }
+        return jdbc.sql("INSERT INTO products (slug, name, brand, category_id) VALUES (:slug, :name, :brand, :category) RETURNING id")
+                .param("slug", slug).param("name", model).param("brand", brand).param("category", categoryId)
+                .query(UUID.class).single();
+    }
+
+    private static String tidy(String text) {
+        return text == null ? "" : text.strip().replaceAll("\\s+", " ");
+    }
+
+    private static String slugOf(String text) {
+        String plain = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+        String slug = plain.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        return slug.isEmpty() ? "produto" : slug;
     }
 
     @Transactional

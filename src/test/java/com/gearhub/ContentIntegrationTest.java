@@ -156,7 +156,7 @@ class ContentIntegrationTest {
     void reviewExigeProdutoEFichaEssencialMasNaoTextoNemNotas() throws Exception {
         HttpResponse<String> semProduto = call("POST", "/api/v1/reviews", "{}", newUser());
         assertThat(semProduto.statusCode()).isEqualTo(400);
-        assertThat(semProduto.body()).contains("Escolha o produto");
+        assertThat(semProduto.body()).contains("Escolha a categoria do produto", "Informe a marca", "Informe o modelo");
 
         HttpResponse<String> semFicha = call("POST", "/api/v1/reviews",
                 "{\"productId\":\"%s\"}".formatted(productId("razer-viper-v3-pro")), newUser());
