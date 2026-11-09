@@ -33,12 +33,15 @@ public class UserController {
     private final AvatarService avatars;
     private final FollowService follows;
     private final BadgeService badges;
+    private final RingStyleService ringStyles;
 
-    public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges) {
+    public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges,
+            RingStyleService ringStyles) {
         this.users = users;
         this.avatars = avatars;
         this.follows = follows;
         this.badges = badges;
+        this.ringStyles = ringStyles;
     }
 
     @GetMapping("/{username}")
@@ -51,7 +54,7 @@ public class UserController {
         User user = users.findByUsernameAndDeletedAtIsNull(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado"));
         return UserResponses.PublicProfile.from(user, follows.counts(user.getId(), current == null ? null : current.id()),
-                badges.of(user.getId()));
+                badges.of(user.getId()), ringStyles.effective(user.getId()));
     }
 
     @PutMapping("/{username}/badges/{key}")
@@ -145,6 +148,9 @@ public class UserController {
                 withoutAt(merged(request.twitter(), user.getTwitter())),
                 withoutAt(merged(request.instagram(), user.getInstagram())),
                 merged(request.youtube(), user.getYoutube()));
+        if (request.ringStyle() != null) {
+            user.chooseRing(ringStyles.validated(user.getId(), request.ringStyle().strip()));
+        }
         return UserResponses.Me.from(user);
     }
 

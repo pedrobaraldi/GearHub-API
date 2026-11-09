@@ -28,5 +28,9 @@ public record UpdateProfileRequest(
 
         @Size(max = 200, message = "Use no máximo 200 caracteres")
         @Pattern(regexp = "^$|^https://(www\\.)?youtube\\.com/\\S+$", message = "Use um link como https://youtube.com/@canal")
-        String youtube) {
+        String youtube,
+
+        @Schema(description = "Contorno da foto: nome de um rank já alcançado, founder, ou vazio para automático")
+        @Size(max = 40, message = "Escolha um dos contornos disponíveis")
+        String ringStyle) {
 }

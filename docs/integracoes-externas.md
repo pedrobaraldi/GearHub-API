@@ -231,7 +231,7 @@ Crie o pacote `com.gearhub.market` (ou o nome da aba):
 
 Use `RestClient` (o mesmo de `DiscordAuthService`). Para o token do IGDB, guarde `token` e `expiraEm` em memória dentro do `IgdbClient`, com `synchronized` na renovação.
 
-### 5.2 Tabelas (próxima migração livre, hoje `V22__market.sql`)
+### 5.2 Tabelas (próxima migração livre, hoje `V23__market.sql`)
 
 ```sql
 -- Jogos acompanhados e a ficha que veio do IGDB
@@ -330,7 +330,7 @@ Siga os testes de integração que já existem (`ApiBaseIntegrationTest`). **Nã
 - [ ] Confirmado o campo/número da Steam em `external_games` do IGDB ⚠️
 - [ ] Confirmados os endpoints de lookup, histórico e menor preço da ITAD ⚠️
 - [ ] `application.yml` + classes `*Properties`
-- [ ] Migração `V22__market.sql`
+- [ ] Migração `V23__market.sql`
 - [ ] Clientes `SteamClient`, `IgdbClient`, `ItadClient`
 - [ ] Coleta agendada + importação do histórico da ITAD
 - [ ] `MarketController` + rotas liberadas no `SecurityConfig`

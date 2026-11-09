@@ -201,6 +201,35 @@ class InteractionIntegrationTest {
     }
 
     @Test
+    void contornoDaFotoSoAceitaRanksLiberados() throws Exception {
+        Person person = newPerson();
+        String profile = "/api/v1/users/" + person.username();
+        assertThat(call("GET", "/api/v1/me/ring-styles", null, person.auth()).body())
+                .contains("\"value\":\"Cobre\",\"label\":\"Cobre\",\"available\":true", "\"value\":\"Prata\",\"label\":\"Prata\",\"available\":false");
+
+        // Rank ainda não alcançado é recusado
+        HttpResponse<String> locked = call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Prata\"}", person.auth());
+        assertThat(locked.statusCode()).isEqualTo(400);
+        assertThat(locked.body()).contains("ringStyle");
+
+        jdbc.update("UPDATE users SET level = 20 WHERE username = ?", person.username());
+        assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Esmeralda\"}", person.auth()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+
+        // Se o nível cair, o contorno volta a ser automático sem apagar a escolha
+        jdbc.update("UPDATE users SET level = 1 WHERE username = ?", person.username());
+        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":null");
+
+        if (jdbc.queryForObject("SELECT founder_number FROM users WHERE username = ?", Integer.class, person.username()) != null) {
+            assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"founder\"}", person.auth()).statusCode()).isEqualTo(200);
+            assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"founder\"");
+        }
+
+        // Vazio volta ao automático
+        assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"\"}", person.auth()).body()).contains("\"ringStyle\":null");
+    }
+
+    @Test
     void soAdminDaEtiraInsignias() throws Exception {
         Person admin = newPerson();
         Person member = newPerson();

@@ -28,13 +28,15 @@ public final class UserResponses {
             int followerCount,
             int followingCount,
             @Schema(description = "Se quem está logado segue este perfil") boolean followedByMe,
-            @Schema(description = "Insígnias exclusivas, na ordem do catálogo") List<BadgeService.Badge> badges) {
+            @Schema(description = "Insígnias exclusivas, na ordem do catálogo") List<BadgeService.Badge> badges,
+            @Schema(description = "Contorno da foto que vale agora; nulo é automático") String ringStyle) {
 
-        public static PublicProfile from(User user, FollowService.FollowCounts follows, List<BadgeService.Badge> badges) {
+        public static PublicProfile from(User user, FollowService.FollowCounts follows, List<BadgeService.Badge> badges,
+                String ringStyle) {
             return new PublicProfile(user.getUsername(), user.getDisplayName(), user.getBio(), user.getAvatarUrl(),
                     user.getBannerUrl(), user.getWebsite(), user.getTwitter(), user.getInstagram(), user.getYoutube(),
                     user.getRankName(), user.getLevel(), user.isPro(), user.getCreatedAt(), follows.followers(),
-                    follows.following(), follows.followedByMe(), badges);
+                    follows.following(), follows.followedByMe(), badges, ringStyle);
         }
     }
 
@@ -55,13 +57,14 @@ public final class UserResponses {
             @Schema(example = "Cobre") String rankName,
             int level,
             boolean pro,
-            Instant createdAt) {
+            Instant createdAt,
+            @Schema(description = "Contorno escolhido para a foto; nulo é automático") String ringStyle) {
 
         public static Me from(User user) {
             return new Me(user.getUsername(), user.getDisplayName(), user.getBio(), user.getAvatarUrl(),
                     user.getBannerUrl(), user.getWebsite(), user.getTwitter(), user.getInstagram(), user.getYoutube(),
                     user.getEmail(), user.getEmailVerifiedAt() != null, user.getRole(), user.getRankName(),
-                    user.getLevel(), user.isPro(), user.getCreatedAt());
+                    user.getLevel(), user.isPro(), user.getCreatedAt(), user.getRingStyle());
         }
     }
 }
