@@ -21,7 +21,8 @@ public class UserProgressService {
 
     @Schema(description = "`levelStartXp` e `nextLevelXp` delimitam a barra do nível atual")
     public record Progress(String username, String displayName, String avatarUrl, boolean pro, String rankName,
-            int level, int xp, int levelStartXp, int nextLevelXp, List<Activity> activities, List<Rank> ranks) {
+            int level, int xp, int levelStartXp, int nextLevelXp, List<Activity> activities, List<Rank> ranks,
+            List<BadgeService.Badge> badges) {
     }
 
     private record Person(UUID id, String username, String displayName, String avatarUrl, boolean pro, String rankName,
@@ -29,9 +30,11 @@ public class UserProgressService {
     }
 
     private final JdbcClient jdbc;
+    private final BadgeService badges;
 
-    public UserProgressService(JdbcClient jdbc) {
+    public UserProgressService(JdbcClient jdbc, BadgeService badges) {
         this.jdbc = jdbc;
+        this.badges = badges;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +67,7 @@ public class UserProgressService {
                 .list();
 
         return new Progress(person.username(), person.displayName(), person.avatarUrl(), person.pro(), person.rankName(),
-                person.level(), person.xp(), person.levelStartXp(), person.nextLevelXp(), activities, ranks);
+                person.level(), person.xp(), person.levelStartXp(), person.nextLevelXp(), activities, ranks,
+                badges.of(person.id()));
     }
 }

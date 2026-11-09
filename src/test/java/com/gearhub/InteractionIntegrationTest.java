@@ -103,7 +103,7 @@ class InteractionIntegrationTest {
         Person author = newPerson();
         Person fan = newPerson();
         String progress = "/api/v1/users/" + author.username() + "/progress";
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":0", "\"level\":1", "\"rankName\":\"Explorador\"");
+        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":0", "\"level\":1", "\"rankName\":\"Cobre\"");
 
         String review = newReview(author, "razer-viper-v3-pro", 8);
         assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":50");
@@ -135,14 +135,80 @@ class InteractionIntegrationTest {
     }
 
     @Test
-    void existemCincoPatentesEmOrdem() throws Exception {
+    void existemSeisPatentesEmOrdem() throws Exception {
         assertThat(jdbc.queryForList("SELECT name || ':' || min_level FROM ranks ORDER BY min_level", String.class))
-                .containsExactly("Explorador:1", "Analista:5", "Reviewer:10", "Especialista:20", "Lenda:35");
+                .containsExactly("Cobre:1", "Prata:5", "Cobalto:10", "Esmeralda:20", "Platina:30", "Diamante:40");
 
         Person person = newPerson();
         assertThat(call("GET", "/api/v1/users/" + person.username() + "/progress", null, Map.of()).body())
-                .contains("\"name\":\"Explorador\",\"minLevel\":1,\"reached\":true,\"current\":true",
-                        "\"name\":\"Lenda\",\"minLevel\":35,\"reached\":false,\"current\":false");
+                .contains("\"name\":\"Cobre\",\"minLevel\":1,\"reached\":true,\"current\":true",
+                        "\"name\":\"Diamante\",\"minLevel\":40,\"reached\":false,\"current\":false");
+    }
+
+    @Test
+    void existeTopicoDeGamesDepoisDePromocao() throws Exception {
+        assertThat(jdbc.queryForList("SELECT slug FROM post_topics ORDER BY position LIMIT 6", String.class))
+                .containsExactly("discussao", "duvida", "recomendacao", "promocao", "games", "setup");
+        assertThat(call("GET", "/api/v1/post-topics", null, Map.of()).body()).contains("\"slug\":\"games\"", "\"name\":\"Games\"");
+    }
+
+    @Test
+    void osCemPrimeirosCadastrosSaoFundadores() throws Exception {
+        newPerson();
+        int users = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
+        int founders = jdbc.queryForObject("SELECT count(*) FROM user_badges WHERE badge_key = 'founder'", Integer.class);
+        assertThat(founders).isEqualTo(Math.min(users, 100));
+        // Números de 1 até a quantidade de fundadores, sem repetir nem pular
+        assertThat(jdbc.queryForList("SELECT founder_number FROM users WHERE founder_number IS NOT NULL ORDER BY founder_number", Integer.class))
+                .isEqualTo(java.util.stream.IntStream.rangeClosed(1, founders).boxed().toList());
+        assertThat(call("GET", "/api/v1/badges", null, Map.of()).body()).startsWith("[{\"key\":\"founder\",\"name\":\"Fundador\"");
+    }
+
+    @Test
+    void subidaDeRankFicaPendenteAteSerVista() throws Exception {
+        Person person = newPerson();
+        assertThat(call("GET", "/api/v1/me/rank-up", null, Map.of()).statusCode()).isEqualTo(401);
+        assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
+
+        jdbc.update("UPDATE users SET rank_name = 'Prata' WHERE username = ?", person.username());
+        jdbc.update("UPDATE users SET rank_name = 'Cobalto' WHERE username = ?", person.username());
+        HttpResponse<String> pending = call("GET", "/api/v1/me/rank-up", null, person.auth());
+        assertThat(pending.statusCode()).isEqualTo(200);
+        // Duas subidas seguidas aparecem como uma: do rank de antes ao atual
+        assertThat(pending.body()).contains("\"fromRank\":\"Cobre\"", "\"toRank\":\"Cobalto\"");
+
+        String id = pending.body().replaceAll(".*\"id\":(\\d+).*", "$1");
+        assertThat(call("POST", "/api/v1/me/rank-up/" + id + "/seen", null, person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
+
+        // Descer não é subida
+        jdbc.update("UPDATE users SET rank_name = 'Cobre' WHERE username = ?", person.username());
+        assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void soAdminDaEtiraInsignias() throws Exception {
+        Person admin = newPerson();
+        Person member = newPerson();
+        jdbc.update("UPDATE users SET role = 'admin' WHERE username = ?", admin.username());
+        String badge = "/api/v1/users/" + member.username() + "/badges/";
+
+        assertThat(call("GET", "/api/v1/badges", null, Map.of()).body())
+                .contains("\"key\":\"developer\",\"name\":\"Desenvolvedor\"", "\"key\":\"game-talker\"");
+        assertThat(call("PUT", badge + "reviewer", null, Map.of()).statusCode()).isEqualTo(401);
+        assertThat(call("PUT", badge + "reviewer", null, member.auth()).statusCode()).isEqualTo(403);
+        assertThat(call("PUT", badge + "inexistente", null, admin.auth()).statusCode()).isEqualTo(404);
+
+        assertThat(call("PUT", badge + "reviewer", null, admin.auth()).body()).contains("\"key\":\"reviewer\"");
+        assertThat(call("PUT", badge + "developer", null, admin.auth()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", "/api/v1/users/" + member.username(), null, Map.of()).body())
+                .contains("\"key\":\"developer\"", "\"key\":\"reviewer\"", "\"grantedAt\":\"20");
+
+        assertThat(call("GET", "/api/v1/users/" + member.username() + "/progress", null, Map.of()).body())
+                .contains("\"key\":\"developer\"");
+
+        assertThat(call("DELETE", badge + "developer", null, admin.auth()).body()).doesNotContain("developer");
+        assertThat(call("GET", "/api/v1/users/" + admin.username(), null, Map.of()).body()).doesNotContain("\"key\":\"developer\"");
     }
 
     @Test

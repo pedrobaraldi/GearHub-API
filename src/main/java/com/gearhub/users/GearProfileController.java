@@ -7,10 +7,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,10 +27,35 @@ public class GearProfileController {
 
     private final GearProfileService service;
     private final UserProgressService progress;
+    private final BadgeService badges;
+    private final RankUpService rankUps;
 
-    public GearProfileController(GearProfileService service, UserProgressService progress) {
+    public GearProfileController(GearProfileService service, UserProgressService progress, BadgeService badges,
+            RankUpService rankUps) {
         this.service = service;
         this.progress = progress;
+        this.badges = badges;
+        this.rankUps = rankUps;
+    }
+
+    @GetMapping("/me/rank-up")
+    @Operation(summary = "Subida de rank que a pessoa ainda não viu (204 quando não há)",
+            security = @SecurityRequirement(name = "session"))
+    public ResponseEntity<RankUpService.RankUp> pendingRankUp(@AuthenticationPrincipal CurrentUser current) {
+        return rankUps.pending(current.id()).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/me/rank-up/{id}/seen")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Marca a subida de rank (e as anteriores) como vista", security = @SecurityRequirement(name = "session"))
+    public void rankUpSeen(@AuthenticationPrincipal CurrentUser current, @PathVariable long id) {
+        rankUps.markSeen(current.id(), id);
+    }
+
+    @GetMapping("/badges")
+    @Operation(summary = "Lista as insígnias exclusivas que existem")
+    public List<BadgeService.Badge> badges() {
+        return badges.catalog();
     }
 
     @GetMapping("/users/{username}/progress")

@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,11 +32,13 @@ public class UserController {
     private final UserRepository users;
     private final AvatarService avatars;
     private final FollowService follows;
+    private final BadgeService badges;
 
-    public UserController(UserRepository users, AvatarService avatars, FollowService follows) {
+    public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges) {
         this.users = users;
         this.avatars = avatars;
         this.follows = follows;
+        this.badges = badges;
     }
 
     @GetMapping("/{username}")
@@ -47,7 +50,36 @@ public class UserController {
             @PathVariable String username) {
         User user = users.findByUsernameAndDeletedAtIsNull(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado"));
-        return UserResponses.PublicProfile.from(user, follows.counts(user.getId(), current == null ? null : current.id()));
+        return UserResponses.PublicProfile.from(user, follows.counts(user.getId(), current == null ? null : current.id()),
+                badges.of(user.getId()));
+    }
+
+    @PutMapping("/{username}/badges/{key}")
+    @Operation(summary = "Dá uma insígnia exclusiva (só admin)", security = @SecurityRequirement(name = "session"))
+    @ApiResponse(responseCode = "403", description = "Só admin dá insígnias")
+    public List<BadgeService.Badge> grantBadge(
+            @AuthenticationPrincipal CurrentUser current,
+            @PathVariable String username,
+            @PathVariable String key) {
+        requireAdmin(current);
+        return badges.set(current.id(), username, key, true);
+    }
+
+    @DeleteMapping("/{username}/badges/{key}")
+    @Operation(summary = "Tira uma insígnia exclusiva (só admin)", security = @SecurityRequirement(name = "session"))
+    @ApiResponse(responseCode = "403", description = "Só admin tira insígnias")
+    public List<BadgeService.Badge> revokeBadge(
+            @AuthenticationPrincipal CurrentUser current,
+            @PathVariable String username,
+            @PathVariable String key) {
+        requireAdmin(current);
+        return badges.set(current.id(), username, key, false);
+    }
+
+    private static void requireAdmin(CurrentUser current) {
+        if (!"admin".equals(current.role())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Só admin pode mudar insígnias");
+        }
     }
 
     @PutMapping("/{username}/follow")
