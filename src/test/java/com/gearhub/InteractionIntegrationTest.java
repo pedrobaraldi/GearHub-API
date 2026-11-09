@@ -168,6 +168,20 @@ class InteractionIntegrationTest {
     void subidaDeRankFicaPendenteAteSerVista() throws Exception {
         Person person = newPerson();
         assertThat(call("GET", "/api/v1/me/rank-up", null, Map.of()).statusCode()).isEqualTo(401);
+
+        // Quem entra entre os 100 primeiros vê antes o desbloqueio do Fundador
+        Integer founderNumber = jdbc.queryForObject("SELECT founder_number FROM users WHERE username = ?", Integer.class, person.username());
+        if (founderNumber != null) {
+            jdbc.update("UPDATE users SET rank_name = 'Prata' WHERE username = ?", person.username());
+            HttpResponse<String> unlock = call("GET", "/api/v1/me/rank-up", null, person.auth());
+            assertThat(unlock.body()).contains("\"kind\":\"founder\"", "\"founderNumber\":" + founderNumber);
+            String unlockId = unlock.body().replaceAll(".*\"id\":(\\d+).*", "$1");
+            assertThat(call("POST", "/api/v1/me/rank-up/" + unlockId + "/seen", null, person.auth()).statusCode()).isEqualTo(204);
+            // Marcar o Fundador como visto não apaga a subida de rank que já estava esperando
+            assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).body()).contains("\"kind\":\"rank\"", "\"toRank\":\"Prata\"");
+            jdbc.update("UPDATE users SET rank_name = 'Cobre' WHERE username = ?", person.username());
+            jdbc.update("UPDATE rank_ups SET seen_at = now() WHERE user_id = (SELECT id FROM users WHERE username = ?)", person.username());
+        }
         assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
 
         jdbc.update("UPDATE users SET rank_name = 'Prata' WHERE username = ?", person.username());
@@ -175,7 +189,7 @@ class InteractionIntegrationTest {
         HttpResponse<String> pending = call("GET", "/api/v1/me/rank-up", null, person.auth());
         assertThat(pending.statusCode()).isEqualTo(200);
         // Duas subidas seguidas aparecem como uma: do rank de antes ao atual
-        assertThat(pending.body()).contains("\"fromRank\":\"Cobre\"", "\"toRank\":\"Cobalto\"");
+        assertThat(pending.body()).contains("\"kind\":\"rank\"", "\"fromRank\":\"Cobre\"", "\"toRank\":\"Cobalto\"");
 
         String id = pending.body().replaceAll(".*\"id\":(\\d+).*", "$1");
         assertThat(call("POST", "/api/v1/me/rank-up/" + id + "/seen", null, person.auth()).statusCode()).isEqualTo(204);
