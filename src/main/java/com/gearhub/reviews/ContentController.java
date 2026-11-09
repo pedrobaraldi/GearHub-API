@@ -73,14 +73,17 @@ public class ContentController {
     }
 
     @GetMapping("/feed")
-    @Operation(summary = "Lista posts e reviews, do mais novo para o mais antigo")
+    @Operation(summary = "Lista posts e reviews, do mais novo para o mais antigo. `product` traz só as reviews desse produto e das categorias relacionadas")
     public ContentResponses.FeedPage feed(
             @AuthenticationPrincipal CurrentUser current,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String author,
+            @RequestParam(required = false) String product,
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "10") int size) {
-        return content.feed(new ContentService.FeedQuery(category, author, null, before, null, size), idOf(current));
+        String text = q == null || q.isBlank() ? null : ContentService.likePattern(q);
+        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product), idOf(current));
     }
 
     @GetMapping("/me/saved")
@@ -89,13 +92,25 @@ public class ContentController {
             @AuthenticationPrincipal CurrentUser current,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "20") int size) {
-        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size), current.id());
+        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null), current.id());
     }
 
     @GetMapping("/products")
     @Operation(summary = "Lista os produtos, com filtro opcional por categoria")
     public List<ContentResponses.ProductSummary> products(@RequestParam(required = false) String category) {
         return content.products(category);
+    }
+
+    @GetMapping("/hall")
+    @Operation(summary = "Lista os destaques: reviewers com mais XP, setups com foto e produtos mais bem avaliados")
+    public ContentResponses.Hall hall() {
+        return content.hall();
+    }
+
+    @GetMapping("/products/{slug}")
+    @Operation(summary = "Busca um produto pelo slug")
+    public ContentResponses.ProductDetail product(@PathVariable String slug) {
+        return content.product(slug);
     }
 
     @PostMapping("/posts")
@@ -203,7 +218,7 @@ public class ContentController {
             @PathVariable String kind,
             @PathVariable UUID id,
             @Valid @RequestBody ContentRequests.SaveComment request) {
-        return Map.of("id", interactions.addComment(ContentKind.fromPath(kind), id, current.id(), request.body()));
+        return Map.of("id", interactions.addComment(ContentKind.fromPath(kind), id, current.id(), request.body(), request.parentId()));
     }
 
     @DeleteMapping("/comments/{id}")

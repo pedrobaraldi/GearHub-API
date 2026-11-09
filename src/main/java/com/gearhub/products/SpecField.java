@@ -9,6 +9,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.util.List;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** Campo da ficha técnica que o formulário de post pede para uma categoria. */
 @Entity
@@ -32,6 +35,9 @@ public class SpecField {
 
     private int position;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> options = List.of();
+
     protected SpecField() {
     }
 
@@ -45,6 +51,10 @@ public class SpecField {
 
     public boolean isRequired() {
         return required;
+    }
+
+    public List<String> getOptions() {
+        return options;
     }
 
     public int getPosition() {

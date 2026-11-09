@@ -2,6 +2,7 @@ package com.gearhub.users;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
+import java.util.List;
 
 /** Respostas de usuário. Hashes nunca saem da API, e o e-mail só vai para o próprio dono. */
 public final class UserResponses {
@@ -20,19 +21,20 @@ public final class UserResponses {
             String twitter,
             String instagram,
             String youtube,
-            @Schema(example = "Explorador") String rankName,
+            @Schema(example = "Cobre") String rankName,
             int level,
             boolean pro,
             Instant createdAt,
             int followerCount,
             int followingCount,
-            @Schema(description = "Se quem está logado segue este perfil") boolean followedByMe) {
+            @Schema(description = "Se quem está logado segue este perfil") boolean followedByMe,
+            @Schema(description = "Insígnias exclusivas, na ordem do catálogo") List<BadgeService.Badge> badges) {
 
-        public static PublicProfile from(User user, FollowService.FollowCounts follows) {
+        public static PublicProfile from(User user, FollowService.FollowCounts follows, List<BadgeService.Badge> badges) {
             return new PublicProfile(user.getUsername(), user.getDisplayName(), user.getBio(), user.getAvatarUrl(),
                     user.getBannerUrl(), user.getWebsite(), user.getTwitter(), user.getInstagram(), user.getYoutube(),
                     user.getRankName(), user.getLevel(), user.isPro(), user.getCreatedAt(), follows.followers(),
-                    follows.following(), follows.followedByMe());
+                    follows.following(), follows.followedByMe(), badges);
         }
     }
 
@@ -50,7 +52,7 @@ public final class UserResponses {
             String email,
             boolean emailVerified,
             String role,
-            @Schema(example = "Explorador") String rankName,
+            @Schema(example = "Cobre") String rankName,
             int level,
             boolean pro,
             Instant createdAt) {

@@ -132,25 +132,183 @@ class ProfileGearIntegrationTest {
     }
 
     @Test
+    void setupAceitaAteDozeFotosEnviadasAoSite() throws Exception {
+        Person person = newPerson();
+        String own = java.util.stream.IntStream.rangeClosed(1, 12)
+                .mapToObj(i -> "\"/uploads/content/" + java.util.UUID.randomUUID() + ".jpg\"")
+                .collect(java.util.stream.Collectors.joining(","));
+        assertThat(call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[" + own + "]}", person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/setup/photos", null, Map.of()).body().split(",")).hasSize(12);
+
+        HttpResponse<String> many = call("PUT", "/api/v1/me/setup/photos",
+                "{\"photos\":[" + own + ",\"/uploads/content/" + java.util.UUID.randomUUID() + ".jpg\"]}", person.auth());
+        assertThat(many.statusCode()).isEqualTo(400);
+        assertThat(many.body()).contains("Envie até 12 fotos");
+
+        HttpResponse<String> external = call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[\"https://exemplo.com/a.jpg\"]}", person.auth());
+        assertThat(external.statusCode()).isEqualTo(400);
+        assertThat(external.body()).contains("Envie as fotos pelo site");
+        assertThat(call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[]}", Map.of()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void jogosTemLimiteDeTresECalculaEdpi() throws Exception {
         Person person = newPerson();
-        String settings = "{\"dpi\":800,\"sensitivity\":0.35,\"resolution\":\"1920x1080\",\"aspectRatio\":\"16:9\",\"refreshRate\":240}";
+        String settings = "{\"settings\":{\"dpi\":\"800\",\"sensitivity\":\"0,35\",\"walk\":\"L-Shift\"}}";
         assertThat(call("PUT", "/api/v1/me/games/valorant", settings, person.auth()).statusCode()).isEqualTo(204);
         assertThat(call("PUT", "/api/v1/me/games/cs2", "{}", person.auth()).statusCode()).isEqualTo(204);
         assertThat(call("PUT", "/api/v1/me/games/fortnite", "{}", person.auth()).statusCode()).isEqualTo(204);
 
-        HttpResponse<String> fourth = call("PUT", "/api/v1/me/games/dota-2", "{}", person.auth());
+        HttpResponse<String> fourth = call("PUT", "/api/v1/me/games/apex-legends", "{}", person.auth());
         assertThat(fourth.statusCode()).isEqualTo(409);
         assertThat(fourth.body()).contains("Você pode cadastrar até 3 jogos");
-        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"dpi\":400}", person.auth()).statusCode()).isEqualTo(204);
 
         assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
-                .contains("\"edpi\":280.0", "\"name\":\"Valorant\"", "\"refreshRate\":240");
-        assertThat(call("PUT", "/api/v1/me/games/inexistente", "{}", person.auth()).statusCode()).isEqualTo(404);
-        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"dpi\":1}", person.auth()).body()).contains("O DPI deve ser de 50 a 100000");
+                .contains("\"label\":\"eDPI\",\"value\":\"280\"", "\"name\":\"Valorant\"", "\"label\":\"Keybinds\"", "L-Shift");
 
         assertThat(call("DELETE", "/api/v1/me/games/cs2", null, person.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("PUT", "/api/v1/me/games/dota-2", "{}", person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("PUT", "/api/v1/me/games/apex-legends", "{}", person.auth()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void cadaJogoTemSeusCamposEValidaOsValores() throws Exception {
+        Person person = newPerson();
+        assertThat(call("GET", "/api/v1/games", null, Map.of()).body())
+                .contains("Rainbow Six Siege", "Tactical Shooter").doesNotContain("dota-2", "warzone");
+        assertThat(call("GET", "/api/v1/games/cs2", null, Map.of()).body())
+                .contains("Crosshair", "Viewmodel", "Advanced Video", "Boost Player Contrast", "\"kind\":\"choice\"");
+        assertThat(call("GET", "/api/v1/games/fortnite", null, Map.of()).body())
+                .contains("3D Resolution").doesNotContain("Crosshair", "Viewmodel");
+        assertThat(call("GET", "/api/v1/games/valorant", null, Map.of()).body())
+                .contains("Keybinds", "Equip Spike").doesNotContain("Video Settings");
+
+        assertThat(call("GET", "/api/v1/games/dota-2", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("PUT", "/api/v1/me/games/dota-2", "{}", person.auth()).statusCode()).isEqualTo(404);
+        assertThat(call("PUT", "/api/v1/me/games/inexistente", "{}", person.auth()).statusCode()).isEqualTo(404);
+
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"settings\":{\"dpi\":\"muito\"}}", person.auth()).body())
+                .contains("Informe um número");
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"settings\":{\"vsync\":\"Talvez\"}}", person.auth()).body())
+                .contains("Opção inválida");
+        assertThat(call("PUT", "/api/v1/me/games/fortnite", "{\"settings\":{\"ch_gap\":\"1\"}}", person.auth()).body())
+                .contains("Campo inválido para este jogo");
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"settings\":{\"edpi\":\"9\",\"dpi\":\"400\"}}", person.auth()).statusCode())
+                .isEqualTo(204);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+                .doesNotContain("\"edpi\":\"9\"");
+    }
+
+    @Test
+    void equipamentoDoJogoApontaParaProdutoCadastrado() throws Exception {
+        Person person = newPerson();
+        String mouse = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'razer-viper-v3-pro'", String.class);
+        String pad = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'artisan-zero-xsoft'", String.class);
+
+        HttpResponse<String> wrong = call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mouse\":{\"productId\":\"" + pad + "\"}}}", person.auth());
+        assertThat(wrong.statusCode()).isEqualTo(400);
+        assertThat(wrong.body()).contains("Produto não encontrado nesta categoria");
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"gpu\":{\"productId\":\"" + pad + "\"}}}", person.auth()).body())
+                .contains("Categoria inválida");
+
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mouse\":{\"productId\":\"" + mouse + "\"}}}", person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+                .contains("\"slug\":\"razer-viper-v3-pro\"", "\"categoryName\":\"Mouse\"");
+
+        // Salvar sem o equipamento tira a escolha anterior
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{}", person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+                .doesNotContain("razer-viper-v3-pro");
+        assertThat(call("DELETE", "/api/v1/me/games/cs2", null, person.auth()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void seletorMostraReviewsMaisPopularesEGuardaAEscolhida() throws Exception {
+        Person person = newPerson();
+        String top = jdbc.queryForObject("""
+                SELECT r.id::text FROM reviews r JOIN products p ON p.id = r.product_id
+                JOIN categories c ON c.id = p.category_id
+                WHERE c.slug = 'mouse' AND r.deleted_at IS NULL ORDER BY r.like_count DESC, r.comment_count DESC LIMIT 1
+                """, String.class);
+        String product = jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, top);
+        // Uma curtida real deixa essa review isolada no topo
+        assertThat(call("PUT", "/api/v1/reviews/" + top + "/like", null, person.auth()).statusCode()).isEqualTo(200);
+        String other = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'artisan-zero-xsoft'", String.class);
+
+        HttpResponse<String> options = call("GET", "/api/v1/gear-options?category=mouse", null, Map.of());
+        assertThat(options.statusCode()).isEqualTo(200);
+        assertThat(options.body().indexOf("\"reviewId\":\"" + top)).isBetween(0, 300);
+        java.util.List<Integer> likes = java.util.regex.Pattern.compile("\"likeCount\":(\\d+)").matcher(options.body()).results()
+                .map(match -> Integer.valueOf(match.group(1))).toList();
+        assertThat(likes).isSortedAccordingTo(java.util.Comparator.reverseOrder());
+
+        assertThat(call("GET", "/api/v1/gear-options?category=mouse&q=viper", null, Map.of()).body())
+                .contains("Viper V3 Pro").doesNotContain("Maya X");
+        assertThat(call("GET", "/api/v1/gear-options?category=gpu", null, Map.of()).statusCode()).isEqualTo(400);
+
+        assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mouse\":{\"productId\":\"" + product + "\",\"reviewId\":\"" + top + "\"}}}", person.auth()).statusCode())
+                .isEqualTo(204);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+                .contains("\"reviewId\":\"" + top + "\"", "\"reviewAuthor\"");
+
+        HttpResponse<String> wrong = call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mousepad\":{\"productId\":\"" + other + "\",\"reviewId\":\"" + top + "\"}}}", person.auth());
+        assertThat(wrong.statusCode()).isEqualTo(400);
+        assertThat(wrong.body()).contains("Essa review não é deste produto");
+    }
+
+    @Test
+    void produtoTemPaginaEReviewsProprias() throws Exception {
+        HttpResponse<String> product = call("GET", "/api/v1/products/razer-viper-v3-pro", null, Map.of());
+        assertThat(product.statusCode()).isEqualTo(200);
+        assertThat(product.body()).contains("Viper V3 Pro", "\"category\":\"Mouse\"", "\"label\":\"Sensor\",\"value\":9.8");
+        assertThat(call("GET", "/api/v1/products/inexistente", null, Map.of()).statusCode()).isEqualTo(404);
+
+        // Mouse e mousepad são do mesmo grupo; teclado e headset não
+        String pad = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'artisan-zero-xsoft'", String.class);
+        assertThat(call("POST", "/api/v1/reviews", """
+                {"productId":"%s","title":"Review do mousepad",
+                 "specs":{"modelo":"Zero","valor":"R$ 400","dimensoes":"49x42","superficie":"Control","material":"Tecido"}}
+                """.formatted(pad), newPerson().auth()).statusCode()).isEqualTo(201);
+
+        String feed = call("GET", "/api/v1/feed?product=razer-viper-v3-pro&size=50", null, Map.of()).body();
+        assertThat(feed).contains("Viper V3 Pro", "Maya X", "Review do mousepad")
+                .doesNotContain("\"kind\":\"post\"", "Wooting 80HE", "Maxwell");
+        assertThat(call("GET", "/api/v1/feed?product=wooting-wooting-80he&size=50", null, Map.of()).body())
+                .contains("Wooting 80HE").doesNotContain("Viper V3 Pro", "Review do mousepad");
+    }
+
+    @Test
+    void feedBuscaPorTextoProdutoEAutor() throws Exception {
+        Person person = newPerson();
+        String marker = "marcador" + person.username();
+        assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Texto com " + marker + "\"}", person.auth()).statusCode()).isEqualTo(201);
+
+        assertThat(call("GET", "/api/v1/feed?q=" + marker, null, Map.of()).body()).contains(marker);
+        assertThat(call("GET", "/api/v1/feed?q=viper%20v3", null, Map.of()).body()).contains("Viper V3 Pro").doesNotContain(marker);
+        assertThat(call("GET", "/api/v1/feed?q=Pedro", null, Map.of()).body()).contains("\"username\":\"pedrolm\"");
+        assertThat(call("GET", "/api/v1/feed?q=" + java.util.UUID.randomUUID(), null, Map.of()).body()).contains("\"items\":[]");
+        // % digitado é texto, não curinga
+        assertThat(call("GET", "/api/v1/feed?q=%25", null, Map.of()).body()).doesNotContain(marker);
+    }
+
+    @Test
+    void hallMostraDestaquesReais() throws Exception {
+        Person person = newPerson();
+        String photo = "/uploads/content/" + java.util.UUID.randomUUID() + ".jpg";
+        assertThat(call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[\"" + photo + "\"]}", person.auth()).statusCode()).isEqualTo(204);
+
+        HttpResponse<String> hall = call("GET", "/api/v1/hall", null, Map.of());
+        assertThat(hall.statusCode()).isEqualTo(200);
+        assertThat(hall.body()).contains("\"reviewers\"", "\"reviewCount\"", "\"rankName\"", "\"level\"", "\"photo\":\"" + photo + "\"", "\"avgScore\"")
+                .doesNotContain("\"avgScore\":null");
+    }
+
+    @Test
+    void catalogoTemTodasAsCategoriasComCamposObrigatorios() throws Exception {
+        String categories = call("GET", "/api/v1/categories", null, Map.of()).body();
+        assertThat(categories).contains("Placa-mãe", "Memória RAM", "Water Cooler", "Fone intra", "\"key\":\"valor\"", "\"IPS\"");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(DISTINCT category_id) FROM spec_fields WHERE key IN ('modelo', 'valor') AND required
+                """, Integer.class)).isEqualTo(17);
     }
 
     @Test

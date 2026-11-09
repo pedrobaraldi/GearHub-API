@@ -63,6 +63,29 @@ public final class ContentResponses {
             BigDecimal avgScore, int reviewCount) {
     }
 
+    public record ProductSpec(String label, String value) {
+    }
+
+    @Schema(description = "Página de um produto")
+    public record ProductDetail(UUID id, String slug, String name, String brand, String category, String imageUrl,
+            String about, List<ProductSpec> specs, BigDecimal avgScore, int reviewCount, List<ProductScore> scores) {
+    }
+
+    @Schema(description = "Média de um critério entre as reviews do produto")
+    public record ProductScore(String label, BigDecimal value) {
+    }
+
+    public record HallReviewer(String username, String displayName, String avatarUrl, long reviewCount, int xp, int level,
+            String rankName) {
+    }
+
+    public record HallSetup(String username, String displayName, String avatarUrl, String photo) {
+    }
+
+    @Schema(description = "Destaques calculados com a atividade real da comunidade")
+    public record Hall(List<HallReviewer> reviewers, List<HallSetup> setups, List<ProductSummary> products) {
+    }
+
     @Schema(description = "Dados de um post para o formulário de edição")
     public record PostDraft(String body, String topic, List<String> tags, List<String> images) {
     }
@@ -98,7 +121,8 @@ public final class ContentResponses {
     public record SaveState(boolean saved) {
     }
 
+    @Schema(description = "`parentId` agrupa as respostas; `replyTo` é o nome de quem foi respondido dentro da conversa")
     public record CommentItem(UUID id, Author author, String body, Instant createdAt, int likeCount,
-            boolean likedByMe, boolean mine) {
+            boolean likedByMe, boolean mine, UUID parentId, String replyTo) {
     }
 }

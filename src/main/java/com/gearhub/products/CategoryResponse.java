@@ -16,7 +16,8 @@ public record CategoryResponse(
     public record SpecFieldResponse(
             @Schema(example = "sensor") String key,
             @Schema(example = "Sensor") String label,
-            @Schema(description = "Se o campo precisa ser preenchido para publicar o post") boolean required) {
+            @Schema(description = "Se o campo precisa ser preenchido para publicar a review") boolean required,
+            @Schema(description = "Sugestões do formulário; outros valores também são aceitos") List<String> options) {
     }
 
     static CategoryResponse from(Category category) {
@@ -27,7 +28,7 @@ public record CategoryResponse(
                         .map(c -> new CriterionResponse(c.getId(), c.getLabel()))
                         .toList(),
                 category.getSpecFields().stream()
-                        .map(f -> new SpecFieldResponse(f.getKey(), f.getLabel(), f.isRequired()))
+                        .map(f -> new SpecFieldResponse(f.getKey(), f.getLabel(), f.isRequired(), f.getOptions()))
                         .toList());
     }
 }

@@ -55,9 +55,11 @@ public class User {
 
     private String role = "user";
 
-    @Column(name = "rank_name")
-    private String rankName = "Explorador";
+    // Nível e patente são mantidos pelo banco: ver a migração V14
+    @Column(name = "rank_name", updatable = false)
+    private String rankName = "Cobre";
 
+    @Column(updatable = false)
     private int level = 1;
 
     @Column(name = "is_pro")
@@ -81,6 +83,11 @@ public class User {
         this.email = email;
         this.emailHash = emailHash;
         this.passwordHash = passwordHash;
+    }
+
+    public void changePassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.updatedAt = Instant.now();
     }
 
     public void markEmailVerified() {

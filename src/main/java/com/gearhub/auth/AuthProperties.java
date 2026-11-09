@@ -10,5 +10,6 @@ public record AuthProperties(
         Duration sessionTtl,
         int loginLimitPerMinute,
         int registerLimitPerMinute,
+        int resetLimitPerMinute,
         List<String> allowedOrigins) {
 }

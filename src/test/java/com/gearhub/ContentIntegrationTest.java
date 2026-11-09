@@ -130,7 +130,7 @@ class ContentIntegrationTest {
     }
 
     private static final String MOUSE_SPECS =
-            "{\"modelo\":\"M1\",\"formato\":\"Simetrico\",\"peso\":\"60 g\",\"sensor\":\"S1\",\"conexao\":\"USB-C\"}";
+            "{\"modelo\":\"M1\",\"valor\":\"R$ 500\",\"sensor\":\"S1\",\"dpi\":\"26000\",\"peso\":\"60 g\",\"conexao\":\"USB-C\"}";
 
     @Test
     void publicaPostEApareceNoFeed() throws Exception {
@@ -153,14 +153,19 @@ class ContentIntegrationTest {
     }
 
     @Test
-    void reviewSoExigeOProduto() throws Exception {
+    void reviewExigeProdutoEFichaEssencialMasNaoTextoNemNotas() throws Exception {
         HttpResponse<String> semProduto = call("POST", "/api/v1/reviews", "{}", newUser());
         assertThat(semProduto.statusCode()).isEqualTo(400);
         assertThat(semProduto.body()).contains("Escolha o produto");
 
-        HttpResponse<String> soProduto = call("POST", "/api/v1/reviews",
+        HttpResponse<String> semFicha = call("POST", "/api/v1/reviews",
                 "{\"productId\":\"%s\"}".formatted(productId("razer-viper-v3-pro")), newUser());
-        assertThat(soProduto.statusCode()).isEqualTo(201);
+        assertThat(semFicha.statusCode()).isEqualTo(400);
+        assertThat(semFicha.body()).contains("specs.valor", "Preencha o campo Valor (R$)");
+
+        HttpResponse<String> soFicha = call("POST", "/api/v1/reviews",
+                "{\"productId\":\"%s\",\"specs\":%s}".formatted(productId("razer-viper-v3-pro"), MOUSE_SPECS), newUser());
+        assertThat(soFicha.statusCode()).isEqualTo(201);
         assertThat(call("GET", "/api/v1/feed?size=1", null, Map.of()).body())
                 .contains("\"title\":null", "\"score\":null");
     }
@@ -173,13 +178,13 @@ class ContentIntegrationTest {
                 """, Integer.class));
 
         HttpResponse<String> foraDaFaixa = call("POST", "/api/v1/reviews",
-                "{\"productId\":\"%s\",\"scores\":{\"%s\":11}}".formatted(productId("razer-viper-v3-pro"), sensor),
+                "{\"productId\":\"%s\",\"specs\":%s,\"scores\":{\"%s\":11}}".formatted(productId("razer-viper-v3-pro"), MOUSE_SPECS, sensor),
                 newUser());
         assertThat(foraDaFaixa.statusCode()).isEqualTo(400);
         assertThat(foraDaFaixa.body()).contains("A nota deve ser de 0 a 10");
 
         HttpResponse<String> parcial = call("POST", "/api/v1/reviews",
-                "{\"productId\":\"%s\",\"scores\":{\"%s\":8}}".formatted(productId("razer-viper-v3-pro"), sensor),
+                "{\"productId\":\"%s\",\"specs\":%s,\"scores\":{\"%s\":8}}".formatted(productId("razer-viper-v3-pro"), MOUSE_SPECS, sensor),
                 newUser());
         assertThat(parcial.statusCode()).isEqualTo(201);
         assertThat(call("GET", "/api/v1/feed?size=1", null, Map.of()).body()).contains("\"score\":8.0");
@@ -202,7 +207,7 @@ class ContentIntegrationTest {
         assertThat(call("POST", "/api/v1/reviews", body, user).statusCode()).isEqualTo(201);
 
         String feed = call("GET", "/api/v1/feed?size=5", null, Map.of()).body();
-        assertThat(feed).contains("Review completa", "\"score\":8.0", "\"label\":\"Sensor\"", "\"value\":\"S1\"", "Leve", "Caro");
+        assertThat(feed).contains("Review completa", "\"score\":8.0", "\"label\":\"Tipo de sensor\"", "\"value\":\"S1\"", "Leve", "Caro");
         assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, mouse))
                 .isEqualTo(2);
 

@@ -49,12 +49,16 @@ public class ContentService {
     private static final BigDecimal MAX_SCORE = BigDecimal.TEN;
     private static final int MAX_TAGS = 10;
     private static final int MIN_SEARCH = 2;
+    private static final int HALL_REVIEWERS = 20;
+    private static final int HALL_SETUPS = 6;
+    private static final int HALL_PRODUCTS = 4;
     private static final int SEARCH_LIMIT = 5;
     private static final Pattern TAG = Pattern.compile("[\\p{L}\\p{N}_-]{1,30}");
     private static final Pattern HASHTAG = Pattern.compile("#(" + TAG.pattern() + ")");
 
     /** Filtros do feed. Campos nulos não filtram. */
-    public record FeedQuery(String category, String author, UUID savedBy, Instant before, String text, int size) {
+    public record FeedQuery(String category, String author, UUID savedBy, Instant before, String text, int size,
+            String product) {
     }
 
     private final JdbcClient jdbc;
@@ -419,13 +423,85 @@ public class ContentService {
     }
 
     @Transactional(readOnly = true)
+    public ContentResponses.ProductDetail product(String slug) {
+        List<ContentResponses.ProductScore> scores = jdbc.sql("""
+                SELECT c.label, round(avg(s.value), 1) AS average
+                FROM review_scores s
+                JOIN criteria c ON c.id = s.criterion_id
+                JOIN reviews r ON r.id = s.review_id
+                JOIN products p ON p.id = r.product_id
+                WHERE p.slug = :slug AND r.deleted_at IS NULL
+                GROUP BY c.label, c.position ORDER BY c.position
+                """)
+                .param("slug", slug)
+                .query((rs, row) -> new ContentResponses.ProductScore(rs.getString("label"), rs.getBigDecimal("average")))
+                .list();
+        return jdbc.sql("""
+                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.about, p.specs::text AS specs,
+                       p.avg_score, p.review_count
+                FROM products p JOIN categories c ON c.id = p.category_id
+                WHERE p.slug = :slug
+                """)
+                .param("slug", slug)
+                .query((rs, row) -> new ContentResponses.ProductDetail(rs.getObject("id", UUID.class), rs.getString("slug"),
+                        rs.getString("name"), rs.getString("brand"), rs.getString("category"), rs.getString("image_url"),
+                        rs.getString("about"),
+                        json.readValue(rs.getString("specs"), new TypeReference<List<ContentResponses.ProductSpec>>() {
+                        }),
+                        rs.getBigDecimal("avg_score"), rs.getInt("review_count"), scores))
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Produto não encontrado"));
+    }
+
+    @Transactional(readOnly = true)
+    public ContentResponses.Hall hall() {
+        List<ContentResponses.HallReviewer> reviewers = jdbc.sql("""
+                SELECT u.username, u.display_name, u.avatar_url, u.xp, u.level, u.rank_name, count(r.id) AS reviews
+                FROM users u JOIN reviews r ON r.user_id = u.id AND r.deleted_at IS NULL
+                WHERE u.deleted_at IS NULL
+                GROUP BY u.id ORDER BY u.xp DESC, reviews DESC, u.username LIMIT :limit
+                """)
+                .param("limit", HALL_REVIEWERS)
+                .query((rs, row) -> new ContentResponses.HallReviewer(rs.getString("username"), rs.getString("display_name"),
+                        rs.getString("avatar_url"), rs.getLong("reviews"), rs.getInt("xp"), rs.getInt("level"),
+                        rs.getString("rank_name")))
+                .list();
+        List<ContentResponses.HallSetup> setups = jdbc.sql("""
+                SELECT username, display_name, avatar_url, setup_photos ->> 0 AS photo FROM users
+                WHERE deleted_at IS NULL AND jsonb_array_length(setup_photos) > 0
+                ORDER BY xp DESC, username LIMIT :limit
+                """)
+                .param("limit", HALL_SETUPS)
+                .query((rs, row) -> new ContentResponses.HallSetup(rs.getString("username"), rs.getString("display_name"),
+                        rs.getString("avatar_url"), rs.getString("photo")))
+                .list();
+        List<ProductSummary> products = jdbc.sql("""
+                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
+                FROM products p JOIN categories c ON c.id = p.category_id
+                WHERE p.avg_score IS NOT NULL
+                ORDER BY p.avg_score DESC, p.review_count DESC, p.brand, p.name LIMIT :limit
+                """)
+                .param("limit", HALL_PRODUCTS)
+                .query((rs, row) -> new ProductSummary(rs.getObject("id", UUID.class), rs.getString("slug"),
+                        rs.getString("name"), rs.getString("brand"), rs.getString("category"), rs.getString("image_url"),
+                        rs.getBigDecimal("avg_score"), rs.getInt("review_count")))
+                .list();
+        return new ContentResponses.Hall(reviewers, setups, products);
+    }
+
+    /** % e _ digitados são texto comum, não curingas. */
+    public static String likePattern(String term) {
+        return "%" + term.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+    }
+
+    @Transactional(readOnly = true)
     public SearchResults search(String term, UUID viewerId) {
         String clean = term.strip();
         if (clean.length() < MIN_SEARCH) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Digite ao menos 2 caracteres para buscar");
         }
         // % e _ digitados são texto comum, não curingas
-        String like = "%" + clean.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        String like = likePattern(clean);
         List<ProductSummary> products = jdbc.sql("""
                 SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
@@ -444,7 +520,7 @@ public class ContentService {
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
                 .query((rs, row) -> author(rs)).list();
-        FeedPage publications = feed(new FeedQuery(null, null, null, null, like, SEARCH_LIMIT), viewerId);
+        FeedPage publications = feed(new FeedQuery(null, null, null, null, like, SEARCH_LIMIT, null), viewerId);
         return new SearchResults(products, people, publications.items());
     }
 
@@ -496,11 +572,19 @@ public class ContentService {
         if (query.author() != null && !query.author().isBlank()) {
             sql.append(" AND u.username = :author");
         }
+        if (query.product() != null && !query.product().isBlank()) {
+            // Reviews do produto e das categorias do mesmo grupo. Posts não têm produto
+            sql.append(kind == ContentKind.POST ? " AND false" : """
+                     AND c.related_group = (SELECT k.related_group FROM products q
+                                            JOIN categories k ON k.id = q.category_id WHERE q.slug = :product)
+                    """);
+        }
         if (query.before() != null) {
             sql.append(" AND r.created_at < :before");
         }
         if (query.text() != null) {
-            sql.append(" AND (r.title ILIKE :text OR r.body ILIKE :text)");
+            sql.append(" AND (r.title ILIKE :text OR r.body ILIKE :text OR u.display_name ILIKE :text");
+            sql.append(kind == ContentKind.POST ? ")" : " OR p.brand || ' ' || p.name ILIKE :text)");
         }
         if (query.savedBy() != null) {
             sql.append(" AND EXISTS (SELECT 1 FROM ").append(kind.savedTable()).append(" s WHERE s.")
@@ -516,6 +600,9 @@ public class ContentService {
         }
         if (query.author() != null && !query.author().isBlank()) {
             bound = bound.param("author", query.author());
+        }
+        if (query.product() != null && !query.product().isBlank()) {
+            bound = bound.param("product", query.product());
         }
         if (query.before() != null) {
             bound = bound.param("before", Timestamp.from(query.before()));
