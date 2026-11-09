@@ -589,9 +589,14 @@ public class ContentService {
                         rs.getString("image_url"), rs.getBigDecimal("avg_score"), rs.getInt("review_count")))
                 .list();
         List<Author> people = jdbc.sql("""
-                SELECT username, display_name, avatar_url, rank_name, level, is_pro FROM users
-                WHERE deleted_at IS NULL AND (username ILIKE :like OR display_name ILIKE :like)
-                ORDER BY display_name LIMIT :limit
+                SELECT u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
+                FROM users u
+                WHERE u.deleted_at IS NULL AND (u.username ILIKE :like OR u.display_name ILIKE :like)
+                ORDER BY u.display_name LIMIT :limit
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
                 .query((rs, row) -> author(rs)).list();
@@ -693,14 +698,19 @@ public class ContentService {
 
     static Author author(ResultSet rs) throws SQLException {
         return new Author(rs.getString("username"), rs.getString("display_name"), rs.getString("avatar_url"),
-                rs.getString("rank_name"), rs.getInt("level"), rs.getBoolean("is_pro"));
+                rs.getString("rank_name"), rs.getInt("level"), rs.getBoolean("is_pro"), rs.getString("ring_style"),
+                rs.getBoolean("founder"));
     }
 
     private List<FeedItem> loadPosts(FeedQuery query, int limit) {
         String sql = """
                 SELECT r.id, r.title, r.body, r.like_count, r.comment_count, r.created_at, c.name AS category,
                        r.images::text AS images, r.tags::text AS tags,
-                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
+                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
                 FROM posts r
                 JOIN users u ON u.id = r.user_id
                 LEFT JOIN post_topics c ON c.id = r.topic_id
@@ -722,7 +732,11 @@ public class ContentService {
                 SELECT r.id, r.title, r.body, r.score, r.cover_url, r.like_count, r.comment_count, r.created_at,
                        r.specs::text AS specs, r.images::text AS images, c.id AS category_id, c.name AS category,
                        p.slug AS product_slug, p.name AS product_name, p.brand, p.image_url,
-                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
+                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
                 FROM reviews r
                 JOIN users u ON u.id = r.user_id
                 JOIN products p ON p.id = r.product_id

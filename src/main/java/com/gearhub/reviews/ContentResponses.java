@@ -13,7 +13,9 @@ public final class ContentResponses {
     }
 
     public record Author(String username, String displayName, String avatarUrl, String rankName, int level,
-            boolean pro) {
+            boolean pro,
+            @Schema(description = "Contorno da foto que vale agora; nulo é automático") String ringStyle,
+            @Schema(description = "Se é um dos 100 primeiros (contorno RGB no automático)") boolean founder) {
     }
 
     public record ProductRef(String slug, String name, String brand, String category, String imageUrl) {

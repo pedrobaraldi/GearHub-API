@@ -224,9 +224,13 @@ class InteractionIntegrationTest {
         assertThat(locked.statusCode()).isEqualTo(400);
         assertThat(locked.body()).contains("ringStyle");
 
+        // Publicar recalcula o nível pelo XP real: o post vem antes de subir o nível no teste
+        call("POST", "/api/v1/posts", "{\"body\":\"Post com contorno\"}", person.auth());
         jdbc.update("UPDATE users SET level = 20 WHERE username = ?", person.username());
         assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Esmeralda\"}", person.auth()).body()).contains("\"ringStyle\":\"Esmeralda\"");
         assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        // O feed mostra o mesmo contorno na foto do autor
+        assertThat(call("GET", "/api/v1/feed?author=" + person.username(), null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
 
         // Se o nível cair, o contorno volta a ser automático sem apagar a escolha
         jdbc.update("UPDATE users SET level = 1 WHERE username = ?", person.username());
