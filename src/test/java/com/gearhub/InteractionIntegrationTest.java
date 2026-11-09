@@ -327,6 +327,11 @@ class InteractionIntegrationTest {
                 review.formatted("PULSAR", "x2 mini ação", scores("mouse", 7), SPECS), second.auth());
         assertThat(jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(again))).isEqualTo(newProduct);
         assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, newProduct)).isEqualTo(2);
+
+        // A página do produto mostra só o que os reviewers preencheram na ficha
+        assertThat(call("GET", "/api/v1/products/pulsar-x2-mini-acao", null, Map.of()).body())
+                .contains("\"label\":\"Tipo de sensor\",\"value\":\"Óptico\"", "\"about\":null")
+                .doesNotContain("\"label\":\"Modelo\"");
     }
 
     @Test

@@ -499,19 +499,31 @@ public class ContentService {
                 .param("slug", slug)
                 .query((rs, row) -> new ContentResponses.ProductScore(rs.getString("label"), rs.getBigDecimal("average")))
                 .list();
+        // Especificações vêm só do que os reviewers preencheram: o valor mais informado em cada campo da ficha
+        List<ContentResponses.ProductSpec> specs = jdbc.sql("""
+                SELECT f.label,
+                       (SELECT r.specs ->> f.key FROM reviews r
+                        WHERE r.product_id = p.id AND r.deleted_at IS NULL
+                          AND coalesce(r.specs ->> f.key, '') NOT IN ('', 'Não informado', 'Não se aplica')
+                        GROUP BY r.specs ->> f.key
+                        ORDER BY count(*) DESC, max(r.created_at) DESC LIMIT 1) AS value
+                FROM spec_fields f JOIN products p ON p.category_id = f.category_id
+                WHERE p.slug = :slug AND f.key <> 'modelo'
+                ORDER BY f.position
+                """)
+                .param("slug", slug)
+                .query((rs, row) -> new ContentResponses.ProductSpec(rs.getString("label"), rs.getString("value")))
+                .list().stream().filter(spec -> spec.value() != null).toList();
+        // O texto "Sobre" não vem de nenhum formulário: não é enviado
         return jdbc.sql("""
-                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.about, p.specs::text AS specs,
-                       p.avg_score, p.review_count
+                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
                 WHERE p.slug = :slug
                 """)
                 .param("slug", slug)
                 .query((rs, row) -> new ContentResponses.ProductDetail(rs.getObject("id", UUID.class), rs.getString("slug"),
                         rs.getString("name"), rs.getString("brand"), rs.getString("category"), rs.getString("image_url"),
-                        rs.getString("about"),
-                        json.readValue(rs.getString("specs"), new TypeReference<List<ContentResponses.ProductSpec>>() {
-                        }),
-                        rs.getBigDecimal("avg_score"), rs.getInt("review_count"), scores))
+                        null, specs, rs.getBigDecimal("avg_score"), rs.getInt("review_count"), scores))
                 .optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Produto não encontrado"));
     }
