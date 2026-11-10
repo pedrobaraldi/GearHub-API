@@ -1,5 +1,6 @@
 package com.gearhub.reviews;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.config.FieldValidationException;
 import com.gearhub.notifications.NotificationService;
 import com.gearhub.reviews.ContentResponses.CommentItem;
@@ -26,9 +27,11 @@ public class InteractionService {
     private final JdbcClient jdbc;
     private final ContentService content;
     private final NotificationService notifications;
+    private final AuditService audit;
 
     public InteractionService(JdbcClient jdbc, ContentService content,
-            NotificationService notifications) {
+            NotificationService notifications, AuditService audit) {
+        this.audit = audit;
         this.notifications = notifications;
         this.jdbc = jdbc;
         this.content = content;
@@ -130,6 +133,8 @@ public class InteractionService {
         UUID replied = parentId == null ? null : target.mention() != null ? target.mention()
                 : jdbc.sql("SELECT user_id FROM comments WHERE id = :id").param("id", target.root()).query(UUID.class).single();
         notifications.commented(kindName(kind), id, owner, userId, body, replied);
+        audit.record(userId, "comment.create", "comment", commentId,
+                Map.of("on", kindName(kind), "text", AuditService.snippet(body)));
         return commentId;
     }
 
@@ -175,6 +180,10 @@ public class InteractionService {
         UUID parent = comment.reviewId() != null ? comment.reviewId() : comment.postId();
         jdbc.sql("UPDATE " + kind.table() + " SET comment_count = GREATEST(comment_count - :removed, 0) WHERE id = :id")
                 .param("removed", removed).param("id", parent).update();
+        // Admin apagando comentário dos outros fica registrado como ação de admin
+        boolean moderation = !comment.owner().equals(userId);
+        audit.record(userId, moderation ? "admin.comment_delete" : "comment.delete", "comment", commentId,
+                moderation ? Map.of("owner", comment.owner().toString()) : Map.of());
     }
 
     private void requireComment(UUID commentId) {

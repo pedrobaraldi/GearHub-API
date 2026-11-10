@@ -1,5 +1,6 @@
 package com.gearhub.auth;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.account.AccountService;
 import com.gearhub.crypto.CryptoService;
 import com.gearhub.users.User;
@@ -39,11 +40,13 @@ public class AuthService {
     private final TurnstileService turnstile;
     private final TwoFactorService twoFactor;
     private final AccountService accounts;
+    private final AuditService audit;
     private final String dummyHash;
 
     public AuthService(UserRepository users, SessionRepository sessions, PasswordEncoder passwords,
             CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties,
-            TurnstileService turnstile, TwoFactorService twoFactor, AccountService accounts) {
+            TurnstileService turnstile, TwoFactorService twoFactor, AccountService accounts, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
@@ -124,6 +127,7 @@ public class AuthService {
     public String openSession(User user, String ip, String userAgent) {
         // Login completo (com o código, se houver 2FA) dentro do prazo: a conta volta
         accounts.restore(user);
+        audit.record(user.getId(), "auth.login");
         String token = crypto.newToken();
         Instant expiresAt = Instant.now().plus(properties.sessionTtl());
         sessions.save(new UserSession(user, crypto.sha256(token), ip, truncate(userAgent), expiresAt));

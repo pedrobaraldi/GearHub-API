@@ -55,6 +55,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/uploads/images").authenticated()
                         .requestMatchers("/api/v1/posts/**", "/api/v1/reviews/**", "/api/v1/comments/**", "/api/v1/me/**").authenticated()
                         .requestMatchers("/api/v1/users/*/follow", "/api/v1/users/*/badges/*").authenticated()
+                        // Denúncias; o painel de admin confere ainda o papel e a verificação em duas etapas
+                        .requestMatchers("/api/v1/reports", "/api/v1/report-reasons", "/api/v1/admin/**").authenticated()
                         .requestMatchers("/api/v1/users/me/avatar", "/api/v1/users/me/banner").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").authenticated()

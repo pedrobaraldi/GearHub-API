@@ -1,11 +1,14 @@
 package com.gearhub.users;
 
+import com.gearhub.admin.AuditService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -22,10 +25,12 @@ public class AvatarService {
 
     private final Path directory;
     private final UserRepository users;
+    private final AuditService audit;
 
-    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users) {
+    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users, AuditService audit) {
         this.directory = Path.of(uploads, "avatars").toAbsolutePath().normalize();
         this.users = users;
+        this.audit = audit;
     }
 
     public Path directory() {
@@ -36,7 +41,7 @@ public class AvatarService {
     public User replace(UUID userId, MultipartFile file) {
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
-        deleteFile(user.getAvatarUrl());
+        history(user, "profile.avatar", user.getAvatarUrl(), url);
         user.changeAvatar(url);
         return user;
     }
@@ -45,7 +50,7 @@ public class AvatarService {
     public User replaceBanner(UUID userId, MultipartFile file) {
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
-        deleteFile(user.getBannerUrl());
+        history(user, "profile.banner", user.getBannerUrl(), url);
         user.changeBanner(url);
         return user;
     }
@@ -53,7 +58,7 @@ public class AvatarService {
     @Transactional
     public User removeAvatar(UUID userId) {
         User user = users.findById(userId).orElseThrow();
-        deleteFile(user.getAvatarUrl());
+        history(user, "profile.avatar", user.getAvatarUrl(), null);
         user.changeAvatar(null);
         return user;
     }
@@ -61,7 +66,7 @@ public class AvatarService {
     @Transactional
     public User removeBanner(UUID userId) {
         User user = users.findById(userId).orElseThrow();
-        deleteFile(user.getBannerUrl());
+        history(user, "profile.banner", user.getBannerUrl(), null);
         user.changeBanner(null);
         return user;
     }
@@ -82,15 +87,12 @@ public class AvatarService {
         return PUBLIC_PATH + name;
     }
 
-    private void deleteFile(String url) {
-        if (url == null || !url.startsWith(PUBLIC_PATH)) {
-            return;
-        }
-        try {
-            Files.deleteIfExists(directory.resolve(url.substring(PUBLIC_PATH.length())).normalize());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    /** A imagem antiga continua no disco (nada é apagado de verdade): a troca fica no histórico do perfil. */
+    private void history(User user, String action, String before, String after) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("de", before);
+        data.put("para", after);
+        audit.record(user.getId(), action, "user", user.getId(), data);
     }
 
     private static byte[] read(MultipartFile file) {

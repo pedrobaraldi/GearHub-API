@@ -105,7 +105,8 @@ public class AccountController {
 
     @PostMapping("/account/delete")
     @Operation(summary = "Pede a exclusão da conta",
-            description = "A conta some do site na hora e é apagada de vez depois de 30 dias. Entrar de novo antes cancela")
+            description = "A conta some do site na hora e fica encerrada em definitivo depois de 30 dias. Entrar de novo antes cancela. "
+                    + "Nada é apagado de verdade: os dados ficam guardados (exclusão lógica)")
     @ApiResponse(responseCode = "400", description = "Confirmação, senha ou código inválidos")
     public ResponseEntity<AccountService.Deletion> delete(@AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody AccountRequests.DeleteAccount body) {

@@ -239,18 +239,21 @@ class AccountIntegrationTest {
     }
 
     @Test
-    void passadosOsTrintaDiasApagaDeVez() throws Exception {
+    void passadosOsTrintaDiasEncerraSemApagarNada() throws Exception {
         Person person = newPerson();
-        call("POST", "/api/v1/posts", "{\"body\":\"Post que some de vez\",\"topic\":\"discussao\"}", person.auth());
+        call("POST", "/api/v1/posts", "{\"body\":\"Post que fica guardado\",\"topic\":\"discussao\"}", person.auth());
         call("POST", "/api/v1/me/account/delete", "{\"confirmation\":\"" + person.username() + "\",\"password\":\"" + PASSWORD + "\"}", person.auth());
         jdbc.update("UPDATE users SET deleted_at = now() - interval '31 days' WHERE username = ?", person.username());
 
         // Fora do prazo não restaura
         assertThat(login(person.email(), PASSWORD).statusCode()).isEqualTo(401);
 
-        assertThat(accounts.purgeExpired()).isGreaterThanOrEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Integer.class, person.username())).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM posts WHERE body = 'Post que some de vez'", Integer.class)).isZero();
+        // Encerrada em definitivo, mas nada é apagado de verdade (exclusão lógica)
+        assertThat(accounts.closeExpired()).isGreaterThanOrEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT closed_at IS NOT NULL FROM users WHERE username = ?", Boolean.class, person.username())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM posts WHERE body = 'Post que fica guardado'", Integer.class)).isEqualTo(1);
+        assertThat(login(person.email(), PASSWORD).statusCode()).isEqualTo(401);
+        assertThat(accounts.closeExpired()).isZero();
     }
 
     @Test

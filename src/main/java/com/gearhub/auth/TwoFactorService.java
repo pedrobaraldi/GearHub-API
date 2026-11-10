@@ -1,5 +1,6 @@
 package com.gearhub.auth;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.config.FieldValidationException;
 import com.gearhub.crypto.CryptoService;
 import com.gearhub.users.User;
@@ -52,10 +53,12 @@ public class TwoFactorService {
     private final RateLimiter rateLimiter;
     private final AuthProperties properties;
     private final JdbcClient jdbc;
+    private final AuditService audit;
     private final SecureRandom random = new SecureRandom();
 
     public TwoFactorService(UserRepository users, CryptoService crypto, PasswordEncoder passwords,
-            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc) {
+            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.crypto = crypto;
         this.passwords = passwords;
@@ -165,6 +168,7 @@ public class TwoFactorService {
         }
         jdbc.sql("UPDATE users SET two_factor_enabled_at = now() WHERE id = :id").param("id", userId).update();
         setProtectedBadge(userId, true);
+        audit.record(userId, "2fa.enable");
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user AND id <> :current")
                 .param("user", userId).param("current", currentSession).update();
         return newRecoveryCodes(userId);
@@ -199,6 +203,7 @@ public class TwoFactorService {
                 """).param("id", userId).update();
         jdbc.sql("DELETE FROM two_factor_recovery_codes WHERE user_id = :user").param("user", userId).update();
         setProtectedBadge(userId, false);
+        audit.record(userId, "2fa.disable");
     }
 
     /** Insígnia "Conta protegida" (com XP) acompanha a verificação: entra ao ativar, sai ao desativar. */

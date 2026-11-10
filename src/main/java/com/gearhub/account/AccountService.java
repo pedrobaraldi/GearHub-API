@@ -1,5 +1,6 @@
 package com.gearhub.account;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.auth.RateLimiter;
 import com.gearhub.auth.TwoFactorService;
 import com.gearhub.config.FieldValidationException;
@@ -43,7 +44,7 @@ public class AccountService {
             Instant createdAt, @Schema(description = "É a sessão deste navegador") boolean current) {
     }
 
-    @Schema(description = "Exclusão pedida: a conta some do site e é apagada de vez nesta data")
+    @Schema(description = "Exclusão pedida: a conta some do site e fica encerrada em definitivo nesta data")
     public record Deletion(Instant deleteAt, int graceDays) {
     }
 
@@ -54,9 +55,11 @@ public class AccountService {
     private final TwoFactorService twoFactor;
     private final RateLimiter rateLimiter;
     private final ContentService content;
+    private final AuditService audit;
 
     public AccountService(UserRepository users, JdbcClient jdbc, PasswordEncoder passwords, CryptoService crypto,
-            TwoFactorService twoFactor, RateLimiter rateLimiter, ContentService content) {
+            TwoFactorService twoFactor, RateLimiter rateLimiter, ContentService content, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.jdbc = jdbc;
         this.passwords = passwords;
@@ -83,6 +86,7 @@ public class AccountService {
         user.changePassword(passwords.encode(request.password()));
         users.save(user);
         signOutOthers(userId, currentSession);
+        audit.record(userId, "account.password");
     }
 
     @Transactional
@@ -107,6 +111,7 @@ public class AccountService {
         } catch (DataIntegrityViolationException e) {
             throw new FieldValidationException(Map.of("email", "Esse e-mail já tem uma conta"));
         }
+        audit.record(userId, "account.email");
     }
 
     // ---------- Contas ligadas ----------
@@ -125,6 +130,7 @@ public class AccountService {
         }
         jdbc.sql("DELETE FROM oauth_accounts WHERE user_id = :user AND provider = :provider")
                 .param("user", userId).param("provider", provider).update();
+        audit.record(userId, "account.disconnect", null, null, Map.of("provider", provider));
     }
 
     private List<String> providers(UUID userId) {
@@ -199,6 +205,7 @@ public class AccountService {
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", userId).update();
         // As reviews deixam de contar na nota dos produtos enquanto a conta está apagada
         content.refreshScoresOfAuthor(userId);
+        audit.record(userId, "account.delete");
         return new Deletion(now.plus(User.DELETION_GRACE_DAYS, ChronoUnit.DAYS), User.DELETION_GRACE_DAYS);
     }
 
@@ -210,20 +217,21 @@ public class AccountService {
         }
         jdbc.sql("UPDATE users SET deleted_at = NULL WHERE id = :id").param("id", user.getId()).update();
         content.refreshScoresOfAuthor(user.getId());
+        audit.record(user.getId(), "account.restore");
     }
 
-    /** Passado o prazo, apaga de vez: o banco leva junto posts, reviews, comentários e o resto. */
+    /**
+     * Passado o prazo, a conta fica encerrada em definitivo: não dá mais para restaurar e continua fora do site.
+     * Nada é apagado de verdade (exclusão lógica): posts, comentários e o histórico ficam guardados.
+     */
     @Transactional
-    public int purgeExpired() {
+    public int closeExpired() {
         List<UUID> expired = jdbc.sql("""
-                SELECT id FROM users WHERE deleted_at < now() - make_interval(days => :days)
+                UPDATE users SET closed_at = now()
+                WHERE closed_at IS NULL AND deleted_at < now() - make_interval(days => :days)
+                RETURNING id
                 """).param("days", User.DELETION_GRACE_DAYS).query(UUID.class).list();
-        for (UUID userId : expired) {
-            List<UUID> products = jdbc.sql("SELECT DISTINCT product_id FROM reviews WHERE user_id = :user")
-                    .param("user", userId).query(UUID.class).list();
-            jdbc.sql("DELETE FROM users WHERE id = :id").param("id", userId).update();
-            products.forEach(content::refreshProductScore);
-        }
+        expired.forEach(userId -> audit.record(userId, "account.closed"));
         return expired.size();
     }
 

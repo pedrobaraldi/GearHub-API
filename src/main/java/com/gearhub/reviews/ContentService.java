@@ -1,5 +1,6 @@
 package com.gearhub.reviews;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.catalog.CatalogResponses;
 import com.gearhub.catalog.CatalogService;
 import com.gearhub.config.FieldValidationException;
@@ -72,8 +73,10 @@ public class ContentService {
     private final ObjectMapper json;
     private final ContentImageService images;
     private final CatalogService catalog;
+    private final AuditService audit;
 
-    public ContentService(JdbcClient jdbc, ObjectMapper json, ContentImageService images, CatalogService catalog) {
+    public ContentService(JdbcClient jdbc, ObjectMapper json, ContentImageService images, CatalogService catalog, AuditService audit) {
+        this.audit = audit;
         this.jdbc = jdbc;
         this.json = json;
         this.images = images;
@@ -91,7 +94,7 @@ public class ContentService {
 
     @Transactional
     public UUID createPost(UUID userId, ContentRequests.SavePost request) {
-        return jdbc.sql("""
+        UUID postId = jdbc.sql("""
                 INSERT INTO posts (user_id, topic_id, body, images, tags, game_id)
                 VALUES (:user, :topic, :body, cast(:images AS jsonb), cast(:tags AS jsonb), :game) RETURNING id
                 """)
@@ -102,11 +105,15 @@ public class ContentService {
                 .param("images", json.writeValueAsString(validImages(request.images(), List.of())))
                 .param("tags", json.writeValueAsString(tagsOf(request)))
                 .query(UUID.class).single();
+        audit.record(userId, "post.create", "post", postId, Map.of("text", AuditService.snippet(request.body())));
+        return postId;
     }
 
     @Transactional
     public void updatePost(UUID userId, UUID postId, ContentRequests.SavePost request) {
         requireOwner(ContentKind.POST, postId, userId);
+        // Versão anterior guardada na auditoria: nenhuma edição apaga o que foi publicado antes
+        Map<String, Object> before = snapshot(ContentKind.POST, postId);
         List<String> currentImages = parseList(jdbc.sql("SELECT images::text FROM posts WHERE id = :id")
                 .param("id", postId).query(String.class).single());
         jdbc.sql("""
@@ -121,6 +128,7 @@ public class ContentService {
                 .param("tags", json.writeValueAsString(tagsOf(request)))
                 .param("id", postId)
                 .update();
+        audit.record(userId, "post.update", "post", postId, Map.of("before", before, "after", snapshot(ContentKind.POST, postId)));
     }
 
     @Transactional(readOnly = true)
@@ -142,6 +150,27 @@ public class ContentService {
                             gameRef(rs));
                 })
                 .single();
+    }
+
+    /** Como a publicação está agora, para a auditoria guardar o antes e o depois de cada edição. */
+    private Map<String, Object> snapshot(ContentKind kind, UUID id) {
+        String sql = kind == ContentKind.POST ? """
+                SELECT jsonb_build_object('texto', p.body, 'topico', t.slug, 'tags', p.tags, 'imagens', p.images,
+                       'jogo', g.slug)::text
+                FROM posts p LEFT JOIN post_topics t ON t.id = p.topic_id LEFT JOIN catalog_games g ON g.igdb_id = p.game_id
+                WHERE p.id = :id
+                """ : """
+                SELECT jsonb_build_object('titulo', r.title, 'texto', r.body, 'nota', r.score, 'imagens', r.images,
+                       'fichaTecnica', r.specs,
+                       'notas', (SELECT jsonb_object_agg(c.label, s.value) FROM review_scores s
+                                 JOIN criteria c ON c.id = s.criterion_id WHERE s.review_id = r.id),
+                       'pros', (SELECT jsonb_agg(text ORDER BY position) FROM review_pros_cons WHERE review_id = r.id AND kind = 'pro'),
+                       'contras', (SELECT jsonb_agg(text ORDER BY position) FROM review_pros_cons WHERE review_id = r.id AND kind = 'con'))::text
+                FROM reviews r WHERE r.id = :id
+                """;
+        return json.readValue(jdbc.sql(sql).param("id", id).query(String.class).single(),
+                new TypeReference<Map<String, Object>>() {
+                });
     }
 
     /** Confere o jogo no catálogo (e guarda a ficha): nome e capa nunca vêm do navegador. */
@@ -252,6 +281,8 @@ public class ContentService {
         }
         writeDetails(reviewId, valid.scores(), request.pros(), request.cons());
         refreshProductScore(productId);
+        audit.record(userId, "review.create", "review", reviewId,
+                Map.of("text", AuditService.snippet(request.title() != null ? request.title() : request.body())));
         return reviewId;
     }
 
@@ -355,6 +386,7 @@ public class ContentService {
     @Transactional
     public void updateReview(UUID userId, UUID reviewId, ContentRequests.UpdateReview request) {
         requireOwner(ContentKind.REVIEW, reviewId, userId);
+        Map<String, Object> before = snapshot(ContentKind.REVIEW, reviewId);
         Map<String, Object> current = jdbc.sql("""
                 SELECT r.product_id, r.images::text AS images, p.category_id, p.image_url FROM reviews r
                 JOIN products p ON p.id = r.product_id WHERE r.id = :id
@@ -379,6 +411,7 @@ public class ContentService {
         jdbc.sql("DELETE FROM review_pros_cons WHERE review_id = :id").param("id", reviewId).update();
         writeDetails(reviewId, valid.scores(), request.pros(), request.cons());
         refreshProductScore((UUID) current.get("product_id"));
+        audit.record(userId, "review.update", "review", reviewId, Map.of("before", before, "after", snapshot(ContentKind.REVIEW, reviewId)));
     }
 
     @Transactional(readOnly = true)
@@ -528,6 +561,8 @@ public class ContentService {
     public void delete(ContentKind kind, UUID userId, UUID id) {
         requireOwner(kind, id, userId);
         jdbc.sql("UPDATE " + kind.table() + " SET deleted_at = now() WHERE id = :id").param("id", id).update();
+        audit.record(userId, kind == ContentKind.POST ? "post.delete" : "review.delete",
+                kind == ContentKind.POST ? "post" : "review", id, Map.of());
         if (kind == ContentKind.REVIEW) {
             UUID productId = jdbc.sql("SELECT product_id FROM reviews WHERE id = :id")
                     .param("id", id).query(UUID.class).single();
