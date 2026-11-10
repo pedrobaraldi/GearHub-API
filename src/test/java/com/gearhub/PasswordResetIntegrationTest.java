@@ -117,6 +117,16 @@ class PasswordResetIntegrationTest {
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private Map<String, String> viewer;
+
+    // Todo o conteúdo exige conta: quem só olha também entra com uma sessão
+    private Map<String, String> viewer() throws Exception {
+        if (viewer == null) {
+            viewer = newPerson().auth();
+        }
+        return viewer;
+    }
+
     private Person newPerson() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         HttpResponse<String> response = call("POST", "/api/v1/auth/register", """

@@ -27,7 +27,7 @@ public final class ContentRequests {
             List<@Size(max = 30, message = "Cada tag deve ter no máximo 30 caracteres") String> tags,
 
             @Schema(description = "Endereços devolvidos por POST /uploads/images")
-            @Size(max = 4, message = "Envie no máximo 4 imagens")
+            @Size(max = 10, message = "Envie no máximo 10 imagens")
             List<String> images) {
     }
 
@@ -67,7 +67,7 @@ public final class ContentRequests {
             List<@Size(max = 120, message = "Use no máximo 120 caracteres em cada contra") String> cons,
 
             @Schema(description = "Endereços devolvidos por POST /uploads/images. Sem eles, usa a foto do produto")
-            @Size(max = 4, message = "Envie no máximo 4 imagens")
+            @Size(max = 10, message = "Envie no máximo 10 imagens")
             List<String> images) {
     }
 
@@ -90,7 +90,7 @@ public final class ContentRequests {
             List<@Size(max = 120, message = "Use no máximo 120 caracteres em cada contra") String> cons,
 
             @Schema(description = "Endereços devolvidos por POST /uploads/images. Sem eles, usa a foto do produto")
-            @Size(max = 4, message = "Envie no máximo 4 imagens")
+            @Size(max = 10, message = "Envie no máximo 10 imagens")
             List<String> images) {
     }
 

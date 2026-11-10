@@ -84,6 +84,16 @@ class InteractionIntegrationTest {
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private Map<String, String> viewer;
+
+    // Todo o conteúdo exige conta: quem só olha também entra com uma sessão
+    private Map<String, String> viewer() throws Exception {
+        if (viewer == null) {
+            viewer = newPerson().auth();
+        }
+        return viewer;
+    }
+
     private Person newPerson() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         HttpResponse<String> response = call("POST", "/api/v1/auth/register", """
@@ -115,35 +125,35 @@ class InteractionIntegrationTest {
         Person author = newPerson();
         Person fan = newPerson();
         String progress = "/api/v1/users/" + author.username() + "/progress";
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":0", "\"level\":1", "\"rankName\":\"Cobre\"");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":0", "\"level\":1", "\"rankName\":\"Cobre\"");
 
         String review = newReview(author, "razer-viper-v3-pro", 8);
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":50");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":50");
 
         assertThat(call("PUT", "/api/v1/reviews/" + review + "/like", null, author.auth()).statusCode()).isEqualTo(200);
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":50");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":50");
 
         assertThat(call("PUT", "/api/v1/reviews/" + review + "/like", null, fan.auth()).statusCode()).isEqualTo(200);
-        assertThat(call("GET", progress, null, Map.of()).body())
+        assertThat(call("GET", progress, null, viewer()).body())
                 .contains("\"xp\":53", "\"key\":\"like\",\"label\":\"Curtida recebida\",\"points\":3,\"count\":1,\"xp\":3");
 
         call("PUT", "/api/v1/users/" + author.username() + "/follow", null, fan.auth());
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":58");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":58");
 
         for (int i = 0; i < 5; i++) {
             call("POST", "/api/v1/posts", "{\"body\":\"Post " + i + "\"}", author.auth());
         }
         // 108 XP passa dos 100 do nível 2, e o autor no feed acompanha
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":108", "\"level\":2", "\"levelStartXp\":100", "\"nextLevelXp\":300");
-        assertThat(call("GET", "/api/v1/users/" + author.username(), null, Map.of()).body()).contains("\"level\":2");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":108", "\"level\":2", "\"levelStartXp\":100", "\"nextLevelXp\":300");
+        assertThat(call("GET", "/api/v1/users/" + author.username(), null, viewer()).body()).contains("\"level\":2");
 
         // Salvar o perfil não pode sobrescrever o nível calculado
         assertThat(call("PATCH", "/api/v1/users/me", "{\"bio\":\"Nova bio\"}", author.auth()).statusCode()).isEqualTo(200);
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"level\":2");
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"level\":2");
 
         assertThat(call("DELETE", "/api/v1/reviews/" + review, null, author.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", progress, null, Map.of()).body()).contains("\"xp\":55", "\"level\":1");
-        assertThat(call("GET", "/api/v1/users/inexistente/progress", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", progress, null, viewer()).body()).contains("\"xp\":55", "\"level\":1");
+        assertThat(call("GET", "/api/v1/users/inexistente/progress", null, viewer()).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -152,7 +162,7 @@ class InteractionIntegrationTest {
                 .containsExactly("Cobre:1", "Prata:5", "Cobalto:10", "Esmeralda:20", "Platina:30", "Diamante:40");
 
         Person person = newPerson();
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/progress", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/progress", null, viewer()).body())
                 .contains("\"name\":\"Cobre\",\"minLevel\":1,\"reached\":true,\"current\":true",
                         "\"name\":\"Diamante\",\"minLevel\":40,\"reached\":false,\"current\":false");
     }
@@ -161,7 +171,7 @@ class InteractionIntegrationTest {
     void existeTopicoDeGamesDepoisDePromocao() throws Exception {
         assertThat(jdbc.queryForList("SELECT slug FROM post_topics ORDER BY position LIMIT 6", String.class))
                 .containsExactly("discussao", "duvida", "recomendacao", "promocao", "games", "setup");
-        assertThat(call("GET", "/api/v1/post-topics", null, Map.of()).body()).contains("\"slug\":\"games\"", "\"name\":\"Games\"");
+        assertThat(call("GET", "/api/v1/post-topics", null, viewer()).body()).contains("\"slug\":\"games\"", "\"name\":\"Games\"");
     }
 
     @Test
@@ -173,7 +183,7 @@ class InteractionIntegrationTest {
         // Números de 1 até a quantidade de fundadores, sem repetir nem pular
         assertThat(jdbc.queryForList("SELECT founder_number FROM users WHERE founder_number IS NOT NULL ORDER BY founder_number", Integer.class))
                 .isEqualTo(java.util.stream.IntStream.rangeClosed(1, founders).boxed().toList());
-        assertThat(call("GET", "/api/v1/badges", null, Map.of()).body()).startsWith("[{\"key\":\"founder\",\"name\":\"Fundador\"");
+        assertThat(call("GET", "/api/v1/badges", null, viewer()).body()).startsWith("[{\"key\":\"founder\",\"name\":\"Fundador\"");
     }
 
     @Test
@@ -228,17 +238,17 @@ class InteractionIntegrationTest {
         call("POST", "/api/v1/posts", "{\"body\":\"Post com contorno\"}", person.auth());
         jdbc.update("UPDATE users SET level = 20 WHERE username = ?", person.username());
         assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Esmeralda\"}", person.auth()).body()).contains("\"ringStyle\":\"Esmeralda\"");
-        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        assertThat(call("GET", profile, null, viewer()).body()).contains("\"ringStyle\":\"Esmeralda\"");
         // O feed mostra o mesmo contorno na foto do autor
-        assertThat(call("GET", "/api/v1/feed?author=" + person.username(), null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        assertThat(call("GET", "/api/v1/feed?author=" + person.username(), null, viewer()).body()).contains("\"ringStyle\":\"Esmeralda\"");
 
         // Se o nível cair, o contorno volta a ser automático sem apagar a escolha
         jdbc.update("UPDATE users SET level = 1 WHERE username = ?", person.username());
-        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":null");
+        assertThat(call("GET", profile, null, viewer()).body()).contains("\"ringStyle\":null");
 
         if (jdbc.queryForObject("SELECT founder_number FROM users WHERE username = ?", Integer.class, person.username()) != null) {
             assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"founder\"}", person.auth()).statusCode()).isEqualTo(200);
-            assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"founder\"");
+            assertThat(call("GET", profile, null, viewer()).body()).contains("\"ringStyle\":\"founder\"");
         }
 
         // Vazio volta ao automático
@@ -247,25 +257,25 @@ class InteractionIntegrationTest {
 
     @Test
     void abaGamesListaDetalhaEMostraHistorico() throws Exception {
-        HttpResponse<String> list = call("GET", "/api/v1/market/games", null, Map.of());
+        HttpResponse<String> list = call("GET", "/api/v1/market/games", null, viewer());
         assertThat(list.statusCode()).isEqualTo(200);
         assertThat(list.body()).contains("\"appid\":730", "\"name\":\"Counter-Strike 2\"");
 
         jdbc.update("UPDATE market_games SET discount_percent = 90, final_cents = 1000, initial_cents = 10000, currency = 'BRL' WHERE steam_appid = 892970");
-        assertThat(call("GET", "/api/v1/market/games?sort=discount", null, Map.of()).body()).startsWith("[{\"appid\":892970");
-        assertThat(call("GET", "/api/v1/market/games?q=valhe", null, Map.of()).body()).contains("892970").doesNotContain("\"appid\":730");
+        assertThat(call("GET", "/api/v1/market/games?sort=discount", null, viewer()).body()).startsWith("[{\"appid\":892970");
+        assertThat(call("GET", "/api/v1/market/games?q=valhe", null, viewer()).body()).contains("892970").doesNotContain("\"appid\":730");
 
         jdbc.update("INSERT INTO market_price_snapshots (steam_appid, taken_at, currency, initial_cents, final_cents, discount_percent) VALUES (892970, now() - interval '40 days', 'BRL', 10000, 10000, 0), (892970, now() - interval '2 days', 'BRL', 10000, 1000, 90)");
         jdbc.update("INSERT INTO market_player_snapshots (steam_appid, taken_at, players) VALUES (892970, now() - interval '3 hours', 5000), (892970, now() - interval '1 hour', 7000)");
 
-        HttpResponse<String> detail = call("GET", "/api/v1/market/games/892970", null, Map.of());
+        HttpResponse<String> detail = call("GET", "/api/v1/market/games/892970", null, viewer());
         assertThat(detail.body()).contains("\"lowestCents\":1000", "\"peakPlayers24h\":7000", "\"peakPlayersAll\":7000");
 
         // 30 dias: o preço de antes do intervalo abre a linha, e a queda aparece depois
-        HttpResponse<String> history = call("GET", "/api/v1/market/games/892970/history?range=30d", null, Map.of());
+        HttpResponse<String> history = call("GET", "/api/v1/market/games/892970/history?range=30d", null, viewer());
         assertThat(history.body()).contains("\"range\":\"30d\"", "\"finalCents\":10000", "\"finalCents\":1000", "\"players\":7000");
 
-        assertThat(call("GET", "/api/v1/market/games/1", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/market/games/1", null, viewer()).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -298,7 +308,7 @@ class InteractionIntegrationTest {
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM market_price_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM market_player_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(3);
-        assertThat(call("GET", "/api/v1/market/games/105600", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/market/games/105600", null, viewer()).body())
                 .contains("\"finalCents\":2500", "\"discountPercent\":50", "\"reviewPercent\":97", "\"genres\":[\"Ação\",\"Aventura\"]");
     }
 
@@ -333,7 +343,7 @@ class InteractionIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, newProduct)).isEqualTo(2);
 
         // A página do produto mostra só o que os reviewers preencheram na ficha
-        assertThat(call("GET", "/api/v1/products/pulsar-x2-mini-acao", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/products/pulsar-x2-mini-acao", null, viewer()).body())
                 .contains("\"label\":\"Modelo\",\"value\":\"M\"", "\"label\":\"Tipo de sensor\",\"value\":\"Óptico\"", "\"about\":null");
     }
 
@@ -344,7 +354,7 @@ class InteractionIntegrationTest {
         jdbc.update("UPDATE users SET role = 'admin' WHERE username = ?", admin.username());
         String badge = "/api/v1/users/" + member.username() + "/badges/";
 
-        assertThat(call("GET", "/api/v1/badges", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/badges", null, viewer()).body())
                 .contains("\"key\":\"developer\",\"name\":\"Desenvolvedor\"", "\"key\":\"game-talker\"");
         assertThat(call("PUT", badge + "reviewer", null, Map.of()).statusCode()).isEqualTo(401);
         assertThat(call("PUT", badge + "reviewer", null, member.auth()).statusCode()).isEqualTo(403);
@@ -352,14 +362,14 @@ class InteractionIntegrationTest {
 
         assertThat(call("PUT", badge + "reviewer", null, admin.auth()).body()).contains("\"key\":\"reviewer\"");
         assertThat(call("PUT", badge + "developer", null, admin.auth()).statusCode()).isEqualTo(200);
-        assertThat(call("GET", "/api/v1/users/" + member.username(), null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + member.username(), null, viewer()).body())
                 .contains("\"key\":\"developer\"", "\"key\":\"reviewer\"", "\"grantedAt\":\"20");
 
-        assertThat(call("GET", "/api/v1/users/" + member.username() + "/progress", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + member.username() + "/progress", null, viewer()).body())
                 .contains("\"key\":\"developer\"");
 
         assertThat(call("DELETE", badge + "developer", null, admin.auth()).body()).doesNotContain("developer");
-        assertThat(call("GET", "/api/v1/users/" + admin.username(), null, Map.of()).body()).doesNotContain("\"key\":\"developer\"");
+        assertThat(call("GET", "/api/v1/users/" + admin.username(), null, viewer()).body()).doesNotContain("\"key\":\"developer\"");
     }
 
     @Test
@@ -376,7 +386,7 @@ class InteractionIntegrationTest {
 
         // Responder a uma resposta fica na mesma conversa e cita quem foi respondido
         String nested = idIn(call("POST", path, "{\"body\":\"Tréplica\",\"parentId\":\"" + replyId + "\"}", author.auth()));
-        String list = call("GET", path, null, Map.of()).body();
+        String list = call("GET", path, null, viewer()).body();
         assertThat(list).contains("\"parentId\":\"" + first + "\"", "\"replyTo\":");
         assertThat(jdbc.queryForObject("SELECT parent_id::text FROM comments WHERE id = ?::uuid", String.class, nested)).isEqualTo(first);
         assertThat(jdbc.queryForObject("SELECT comment_count FROM reviews WHERE id = ?::uuid", Integer.class, review)).isEqualTo(3);
@@ -388,7 +398,7 @@ class InteractionIntegrationTest {
 
         assertThat(call("DELETE", "/api/v1/comments/" + first, null, author.auth()).statusCode()).isEqualTo(204);
         assertThat(jdbc.queryForObject("SELECT comment_count FROM reviews WHERE id = ?::uuid", Integer.class, review)).isZero();
-        assertThat(call("GET", path, null, Map.of()).body()).isEqualTo("[]");
+        assertThat(call("GET", path, null, viewer()).body()).isEqualTo("[]");
     }
 
     @Test
@@ -425,10 +435,10 @@ class InteractionIntegrationTest {
         assertThat(call("PATCH", "/api/v1/posts/" + post,
                 "{\"body\":\"Texto editado pela autora\",\"topic\":\"mouse\"}", author.auth()).statusCode())
                 .isEqualTo(204);
-        assertThat(call("GET", "/api/v1/feed?size=20", null, Map.of()).body()).contains("Texto editado pela autora");
+        assertThat(call("GET", "/api/v1/feed?size=20", null, viewer()).body()).contains("Texto editado pela autora");
 
         assertThat(call("DELETE", "/api/v1/posts/" + post, null, author.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/feed?size=50", null, Map.of()).body()).doesNotContain(post);
+        assertThat(call("GET", "/api/v1/feed?size=50", null, viewer()).body()).doesNotContain(post);
         assertThat(call("PATCH", "/api/v1/posts/" + post, "{\"title\":\"Ainda vivo\",\"body\":\"x\"}", author.auth()).statusCode())
                 .isEqualTo(404);
     }
@@ -469,7 +479,7 @@ class InteractionIntegrationTest {
         assertThat(call("PATCH", "/api/v1/reviews/" + review, """
                 {"title":"Review editada","body":"Texto com tamanho suficiente","scores":%s,"specs":%s,"cons":["Caro"]}
                 """.formatted(scores("mouse", 2), SPECS), author.auth()).statusCode()).isEqualTo(204);
-        String edited = call("GET", "/api/v1/feed?size=30", null, Map.of()).body();
+        String edited = call("GET", "/api/v1/feed?size=30", null, viewer()).body();
         assertThat(edited).contains("Review editada", "\"score\":2.0", "Caro");
 
         assertThat(call("DELETE", "/api/v1/reviews/" + review, null, author.auth()).statusCode()).isEqualTo(204);
@@ -528,17 +538,17 @@ class InteractionIntegrationTest {
         assertThat(created.statusCode()).isEqualTo(201);
         String comment = idIn(created);
 
-        assertThat(call("GET", "/api/v1/posts/" + post + "/comments", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/posts/" + post + "/comments", null, viewer()).body())
                 .contains("Muito bom", reader.username(), "\"mine\":false");
         assertThat(call("GET", "/api/v1/posts/" + post + "/comments", null, reader.auth()).body()).contains("\"mine\":true");
-        assertThat(call("GET", "/api/v1/feed?size=30", null, Map.of()).body()).contains("\"commentCount\":1");
+        assertThat(call("GET", "/api/v1/feed?size=30", null, viewer()).body()).contains("\"commentCount\":1");
 
         assertThat(call("PUT", "/api/v1/comments/" + comment + "/like", null, author.auth()).body()).contains("\"likeCount\":1");
         assertThat(call("PUT", "/api/v1/comments/" + comment + "/like", null, author.auth()).body()).contains("\"likeCount\":1");
 
         assertThat(call("DELETE", "/api/v1/comments/" + comment, null, author.auth()).statusCode()).isEqualTo(403);
         assertThat(call("DELETE", "/api/v1/comments/" + comment, null, reader.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/posts/" + post + "/comments", null, Map.of()).body()).doesNotContain("Muito bom");
+        assertThat(call("GET", "/api/v1/posts/" + post + "/comments", null, viewer()).body()).doesNotContain("Muito bom");
         assertThat(jdbc.queryForObject("SELECT comment_count FROM posts WHERE id = ?::uuid", Integer.class, post)).isZero();
         assertThat(call("POST", "/api/v1/posts/" + post + "/comments", "{\"body\":\"x\"}", Map.of()).statusCode()).isEqualTo(401);
     }
@@ -549,7 +559,7 @@ class InteractionIntegrationTest {
         String review = newReview(author, "lamzu-maya-x", 9);
         assertThat(call("POST", "/api/v1/reviews/" + review + "/comments", "{\"body\":\"Boa review\"}", author.auth()).statusCode())
                 .isEqualTo(201);
-        assertThat(call("GET", "/api/v1/reviews/" + review + "/comments", null, Map.of()).body()).contains("Boa review");
+        assertThat(call("GET", "/api/v1/reviews/" + review + "/comments", null, viewer()).body()).contains("Boa review");
     }
 
     @Test
@@ -563,8 +573,8 @@ class InteractionIntegrationTest {
 
         String seen = call("GET", "/api/v1/users/" + b.username(), null, a.auth()).body();
         assertThat(seen).contains("\"followerCount\":1", "\"followedByMe\":true");
-        assertThat(call("GET", "/api/v1/users/" + b.username(), null, Map.of()).body()).contains("\"followedByMe\":false");
-        assertThat(call("GET", "/api/v1/users/" + a.username(), null, Map.of()).body()).contains("\"followingCount\":1");
+        assertThat(call("GET", "/api/v1/users/" + b.username(), null, viewer()).body()).contains("\"followedByMe\":false");
+        assertThat(call("GET", "/api/v1/users/" + a.username(), null, viewer()).body()).contains("\"followingCount\":1");
 
         HttpResponse<String> self = call("PUT", "/api/v1/users/" + a.username() + "/follow", null, a.auth());
         assertThat(self.statusCode()).isEqualTo(400);

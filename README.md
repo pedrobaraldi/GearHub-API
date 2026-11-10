@@ -12,8 +12,12 @@ API do GearHub em Java com Spring Boot e PostgreSQL. No Windows, use `mvnw.cmd` 
 Sobe a API com um Postgres real embutido, já com os dados de exemplo. Os dados ficam em `.local-db`, fora do Git; para recomeçar do zero, apague a pasta com a API parada.
 
 ```bash
+npm run dev
+# ou, sem Node:
 ./mvnw spring-boot:test-run -Dspring-boot.run.mainClass=com.gearhub.LocalGearHubApplication
 ```
+
+Os scripts do `package.json` só chamam o Maven Wrapper; não precisa de `npm install`. Outros: `npm run dev:docker`, `npm test`, `npm run build`.
 
 Para ativar o login com Google e Discord nessa execução, copie `.env.example` para `.env` e preencha as credenciais. O `.env` fica fora do Git.
 
