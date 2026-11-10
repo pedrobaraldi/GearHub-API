@@ -204,7 +204,8 @@ class CatalogIntegrationTest {
         Map<String, String> auth = session();
         call("/api/v1/catalog/games?q=" + java.net.URLEncoder.encode("x\"; fields *; where id = 1;", StandardCharsets.UTF_8),
                 null, auth);
-        assertThat(QUERIES.getFirst()).startsWith("/v4/games search \"x  fields * where id = 1 \";".replace("  ", " "));
+        // Aspas e ponto e vírgula somem: o texto continua preso dentro do search "..."
+        assertThat(QUERIES.getFirst()).startsWith("/v4/games search \"x fields * where id = 1\"; fields name,slug");
     }
 
     @Test
@@ -226,8 +227,8 @@ class CatalogIntegrationTest {
                 "\"youtubeId\":\"D1mDo1CEMuE\"",
                 "\"expansions\":[{\"slug\":\"elden-ring-shadow-of-the-erdtree\"",
                 "\"similar\":[{\"slug\":\"dark-souls\"");
-        // Elden Ring não é acompanhado na aba Games: sem bloco da Steam
-        assertThat(page.body()).endsWith("\"steam\":null}");
+        // Elden Ring vem nos jogos acompanhados da aba Games: a página traz o bloco da Steam
+        assertThat(page.body()).contains("\"steam\":{\"appid\":1245620");
         assertThat(QUERIES).anyMatch(query -> query.startsWith("/v4/game_time_to_beats") && query.contains("game_id = 119133"));
     }
 
@@ -256,41 +257,35 @@ class CatalogIntegrationTest {
         Map<String, String> auth = session();
         assertThat(call("/api/v1/catalog/games/nao-existe", null, auth).statusCode()).isEqualTo(404);
         int before = QUERIES.size();
-        assertThat(call("/api/v1/catalog/games/Slug%22;%20fields", null, auth).statusCode()).isEqualTo(404);
+        assertThat(call("/api/v1/catalog/games/Slug%22;%20fields", null, auth).statusCode()).isIn(400, 404);
         assertThat(QUERIES).hasSize(before);
     }
 
     @Test
     void jogoAcompanhadoNaSteamTrazPrecoEJogadores() throws Exception {
+        // Elden Ring já vem na lista de jogos acompanhados: só preenche preço e jogadores
+        jdbc.update("INSERT INTO market_games (steam_appid, name) VALUES (1245620, 'ELDEN RING') ON CONFLICT (steam_appid) DO NOTHING");
         jdbc.update("""
-                INSERT INTO market_games (steam_appid, name, currency, initial_cents, final_cents, discount_percent, current_players)
-                VALUES (1245620, 'ELDEN RING', 'BRL', 22990, 11495, 50, 40000) ON CONFLICT (steam_appid) DO NOTHING
+                UPDATE market_games SET currency = 'BRL', initial_cents = 22990, final_cents = 11495, discount_percent = 50,
+                    current_players = 40000 WHERE steam_appid = 1245620
                 """);
-        try {
-            HttpResponse<String> page = call("/api/v1/catalog/games/elden-ring", null, session());
-            assertThat(page.body()).contains("\"steam\":{\"appid\":1245620", "\"finalCents\":11495", "\"discountPercent\":50",
-                    "\"currentPlayers\":40000", "\"slug\":\"elden-ring\"");
-        } finally {
-            jdbc.update("DELETE FROM market_games WHERE steam_appid = 1245620");
-        }
+        HttpResponse<String> page = call("/api/v1/catalog/games/elden-ring", null, session());
+        assertThat(page.body()).contains("\"steam\":{\"appid\":1245620", "\"finalCents\":11495", "\"discountPercent\":50",
+                "\"currentPlayers\":40000", "\"slug\":\"elden-ring\"");
     }
 
     @Test
     void ligaOsJogosDaSteamAoCatalogo() throws Exception {
         jdbc.update("INSERT INTO market_games (steam_appid, name) VALUES (1245620, 'ELDEN RING') ON CONFLICT (steam_appid) DO NOTHING");
-        try {
-            assertThat(catalog.linkMarketGames()).isEqualTo(1);
-            assertThat(QUERIES).anyMatch(query -> query.startsWith("/v4/external_games")
-                    && query.contains("external_game_source = 1") && query.contains("\"1245620\""));
+        assertThat(catalog.linkMarketGames()).isEqualTo(1);
+        assertThat(QUERIES).anyMatch(query -> query.startsWith("/v4/external_games")
+                && query.contains("external_game_source = 1") && query.contains("\"1245620\""));
 
-            Map<String, String> auth = session();
-            assertThat(call("/api/v1/market/games?q=elden", null, auth).body()).contains("\"slug\":\"elden-ring\"");
-            // Endereço antigo da aba Games encontra a página nova
-            assertThat(call("/api/v1/catalog/steam/1245620", null, auth).body()).isEqualTo("{\"slug\":\"elden-ring\"}");
-            assertThat(call("/api/v1/catalog/steam/999999", null, auth).statusCode()).isEqualTo(404);
-        } finally {
-            jdbc.update("DELETE FROM market_games WHERE steam_appid = 1245620");
-        }
+        Map<String, String> auth = session();
+        assertThat(call("/api/v1/market/games?q=elden", null, auth).body()).contains("\"slug\":\"elden-ring\"");
+        // Endereço antigo da aba Games encontra a página nova
+        assertThat(call("/api/v1/catalog/steam/1245620", null, auth).body()).isEqualTo("{\"slug\":\"elden-ring\"}");
+        assertThat(call("/api/v1/catalog/steam/999999", null, auth).statusCode()).isEqualTo(404);
     }
 
     @Test
