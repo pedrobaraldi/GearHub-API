@@ -1,6 +1,7 @@
 package com.gearhub.reviews;
 
 import com.gearhub.auth.CurrentUser;
+import com.gearhub.auth.TwoFactorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -38,8 +39,11 @@ public class ContentController {
     private final ContentService content;
     private final InteractionService interactions;
     private final ContentImageService images;
+    private final TwoFactorService twoFactor;
 
-    public ContentController(ContentService content, InteractionService interactions, ContentImageService images) {
+    public ContentController(ContentService content, InteractionService interactions, ContentImageService images,
+            TwoFactorService twoFactor) {
+        this.twoFactor = twoFactor;
         this.content = content;
         this.interactions = interactions;
         this.images = images;
@@ -227,7 +231,9 @@ public class ContentController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Apaga o próprio comentário", security = @SecurityRequirement(name = "session"))
     public void deleteComment(@AuthenticationPrincipal CurrentUser current, @PathVariable UUID id) {
-        interactions.deleteComment(id, current.id(), "admin".equals(current.role()));
+        // Apagar comentário dos outros é ferramenta de admin: só com a verificação em duas etapas ativa
+        boolean admin = "admin".equals(current.role()) && twoFactor.isEnabled(current.id());
+        interactions.deleteComment(id, current.id(), admin);
     }
 
     @PutMapping("/comments/{id}/like")

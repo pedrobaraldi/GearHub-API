@@ -88,7 +88,7 @@ public class InteractionService {
                        u.founder_number IS NOT NULL AS founder
                 FROM comments c JOIN users u ON u.id = c.user_id
                 LEFT JOIN users t ON t.id = c.reply_to_user_id
-                WHERE c.%s = :id AND c.deleted_at IS NULL
+                WHERE c.%s = :id AND c.deleted_at IS NULL AND u.deleted_at IS NULL
                 ORDER BY c.created_at LIMIT :limit
                 """.formatted(kind.foreignKey()))
                 .param("id", id).param("limit", MAX_COMMENTS)

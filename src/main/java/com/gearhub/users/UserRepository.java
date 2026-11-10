@@ -8,6 +8,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmailHashAndDeletedAtIsNull(String emailHash);
 
+    /** Inclui contas com exclusão pedida, que ainda podem ser restauradas no login. */
+    Optional<User> findByEmailHash(String emailHash);
+
     Optional<User> findByUsernameAndDeletedAtIsNull(String username);
 
     boolean existsByUsername(String username);

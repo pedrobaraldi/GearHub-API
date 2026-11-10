@@ -39,7 +39,7 @@ public class OAuthAccountService {
                 .param("hash", subjectHash).query(UUID.class).optional();
         if (linked.isPresent()) {
             return users.findById(linked.get())
-                    .filter(user -> user.getDeletedAt() == null)
+                    .filter(user -> user.getDeletedAt() == null || user.isRestorable())
                     .orElseThrow(() -> new OAuthLoginException(profile.failedCode(), null));
         }
 
@@ -49,7 +49,8 @@ public class OAuthAccountService {
         }
         String email = profile.email().strip().toLowerCase(Locale.ROOT);
         String emailHash = crypto.blindIndex(email);
-        User user = users.findByEmailHashAndDeletedAtIsNull(emailHash)
+        User user = users.findByEmailHash(emailHash)
+                .filter(found -> found.getDeletedAt() == null || found.isRestorable())
                 .orElseGet(() -> createUser(profile.name(), email, emailHash));
         user.markEmailVerified();
 

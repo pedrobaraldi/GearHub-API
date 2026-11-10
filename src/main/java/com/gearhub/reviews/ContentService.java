@@ -502,14 +502,24 @@ public class ContentService {
         }
     }
 
-    private void refreshProductScore(UUID productId) {
+    /** Nota do produto: média das reviews ativas, sem as de quem pediu para apagar a conta. */
+    @Transactional
+    public void refreshProductScore(UUID productId) {
         jdbc.sql("""
                 UPDATE products p
                 SET avg_score = s.average, review_count = s.total, updated_at = now()
-                FROM (SELECT round(avg(score), 1) AS average, count(*) AS total
-                      FROM reviews WHERE product_id = :product AND deleted_at IS NULL) s
+                FROM (SELECT round(avg(r.score), 1) AS average, count(*) AS total
+                      FROM reviews r JOIN users u ON u.id = r.user_id
+                      WHERE r.product_id = :product AND r.deleted_at IS NULL AND u.deleted_at IS NULL) s
                 WHERE p.id = :product
                 """).param("product", productId).update();
+    }
+
+    /** Conta apagada ou restaurada: recalcula a nota de todo produto que a pessoa avaliou. */
+    @Transactional
+    public void refreshScoresOfAuthor(UUID userId) {
+        jdbc.sql("SELECT DISTINCT product_id FROM reviews WHERE user_id = :user").param("user", userId)
+                .query(UUID.class).list().forEach(this::refreshProductScore);
     }
 
     // Apagar ---------------------------------------------------------------
@@ -717,7 +727,8 @@ public class ContentService {
     }
 
     private static String filters(ContentKind kind, FeedQuery query) {
-        StringBuilder sql = new StringBuilder(" WHERE r.deleted_at IS NULL");
+        // Quem pediu para apagar a conta some do feed na hora
+        StringBuilder sql = new StringBuilder(" WHERE r.deleted_at IS NULL AND u.deleted_at IS NULL");
         if (query.category() != null && !query.category().isBlank()) {
             sql.append(" AND c.slug = :category");
         }

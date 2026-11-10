@@ -1,6 +1,7 @@
 package com.gearhub.users;
 
 import com.gearhub.auth.CurrentUser;
+import com.gearhub.auth.TwoFactorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -34,9 +35,11 @@ public class UserController {
     private final FollowService follows;
     private final BadgeService badges;
     private final RingStyleService ringStyles;
+    private final TwoFactorService twoFactor;
 
     public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges,
-            RingStyleService ringStyles) {
+            RingStyleService ringStyles, TwoFactorService twoFactor) {
+        this.twoFactor = twoFactor;
         this.users = users;
         this.avatars = avatars;
         this.follows = follows;
@@ -79,9 +82,14 @@ public class UserController {
         return badges.set(current.id(), username, key, false);
     }
 
-    private static void requireAdmin(CurrentUser current) {
+    private void requireAdmin(CurrentUser current) {
         if (!"admin".equals(current.role())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Só admin pode mudar insígnias");
+        }
+        // Conta de admin invadida estraga o site inteiro: as ferramentas pedem a verificação em duas etapas
+        if (!twoFactor.isEnabled(current.id())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Ative a verificação em duas etapas para usar as ferramentas de administração.");
         }
     }
 
