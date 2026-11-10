@@ -1,5 +1,7 @@
 package com.gearhub.auth;
 
+import com.gearhub.admin.AuditService;
+import com.gearhub.account.AccountService;
 import com.gearhub.crypto.CryptoService;
 import com.gearhub.users.User;
 import com.gearhub.users.UserRepository;
@@ -37,11 +39,14 @@ public class AuthService {
     private final AuthProperties properties;
     private final TurnstileService turnstile;
     private final TwoFactorService twoFactor;
+    private final AccountService accounts;
+    private final AuditService audit;
     private final String dummyHash;
 
     public AuthService(UserRepository users, SessionRepository sessions, PasswordEncoder passwords,
             CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties,
-            TurnstileService turnstile, TwoFactorService twoFactor) {
+            TurnstileService turnstile, TwoFactorService twoFactor, AccountService accounts, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
@@ -50,6 +55,7 @@ public class AuthService {
         this.properties = properties;
         this.turnstile = turnstile;
         this.twoFactor = twoFactor;
+        this.accounts = accounts;
         this.dummyHash = passwords.encode(crypto.newToken());
     }
 
@@ -85,7 +91,10 @@ public class AuthService {
         rateLimiter.check("login-account:" + emailHash, properties.loginLimitPerMinute());
         turnstile.verify(request.turnstileToken());
 
-        User user = users.findByEmailHashAndDeletedAtIsNull(emailHash).orElse(null);
+        // Conta com exclusão pedida ainda entra nos 30 dias: entrar cancela a exclusão
+        User user = users.findByEmailHash(emailHash)
+                .filter(found -> found.getDeletedAt() == null || found.isRestorable())
+                .orElse(null);
         String storedHash = user == null || user.getPasswordHash() == null ? dummyHash : user.getPasswordHash();
         // A comparação roda mesmo sem conta, para o tempo de resposta não revelar quem está cadastrado
         boolean matches = passwords.matches(request.password(), storedHash);
@@ -116,6 +125,9 @@ public class AuthService {
 
     @Transactional
     public String openSession(User user, String ip, String userAgent) {
+        // Login completo (com o código, se houver 2FA) dentro do prazo: a conta volta
+        accounts.restore(user);
+        audit.record(user.getId(), "auth.login");
         String token = crypto.newToken();
         Instant expiresAt = Instant.now().plus(properties.sessionTtl());
         sessions.save(new UserSession(user, crypto.sha256(token), ip, truncate(userAgent), expiresAt));

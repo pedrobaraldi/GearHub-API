@@ -1,12 +1,15 @@
 package com.gearhub.users;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.auth.CurrentUser;
+import com.gearhub.auth.AdminAccess;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -34,9 +37,13 @@ public class UserController {
     private final FollowService follows;
     private final BadgeService badges;
     private final RingStyleService ringStyles;
+    private final AdminAccess adminAccess;
+    private final AuditService audit;
 
     public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges,
-            RingStyleService ringStyles) {
+            RingStyleService ringStyles, AdminAccess adminAccess, AuditService audit) {
+        this.audit = audit;
+        this.adminAccess = adminAccess;
         this.users = users;
         this.avatars = avatars;
         this.follows = follows;
@@ -79,10 +86,8 @@ public class UserController {
         return badges.set(current.id(), username, key, false);
     }
 
-    private static void requireAdmin(CurrentUser current) {
-        if (!"admin".equals(current.role())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Só admin pode mudar insígnias");
-        }
+    private void requireAdmin(CurrentUser current) {
+        adminAccess.require(current, "Só admin pode mudar insígnias");
     }
 
     @PutMapping("/{username}/follow")
@@ -136,6 +141,7 @@ public class UserController {
             @AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody UpdateProfileRequest request) {
         User user = users.findById(current.id()).orElseThrow();
+        Map<String, String> before = profileOf(user);
         if (request.username() != null && !request.username().equals(user.getUsername())) {
             if (users.existsByUsername(request.username())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse nome de usuário já está em uso");
@@ -151,7 +157,34 @@ public class UserController {
         if (request.ringStyle() != null) {
             user.chooseRing(ringStyles.validated(user.getId(), request.ringStyle().strip()));
         }
+        // Histórico do perfil: só o que mudou, com o valor de antes e o de depois
+        Map<String, String> after = profileOf(user);
+        Map<String, Object> changes = new java.util.LinkedHashMap<>();
+        before.forEach((field, old) -> {
+            if (!java.util.Objects.equals(old, after.get(field))) {
+                Map<String, String> change = new java.util.HashMap<>();
+                change.put("de", old);
+                change.put("para", after.get(field));
+                changes.put(field, change);
+            }
+        });
+        if (!changes.isEmpty()) {
+            audit.record(user.getId(), "profile.update", "user", user.getId(), changes);
+        }
         return UserResponses.Me.from(user);
+    }
+
+    private static Map<String, String> profileOf(User user) {
+        Map<String, String> profile = new java.util.LinkedHashMap<>();
+        profile.put("usuario", user.getUsername());
+        profile.put("nome", user.getDisplayName());
+        profile.put("bio", user.getBio());
+        profile.put("site", user.getWebsite());
+        profile.put("twitter", user.getTwitter());
+        profile.put("instagram", user.getInstagram());
+        profile.put("youtube", user.getYoutube());
+        profile.put("contorno", user.getRingStyle());
+        return profile;
     }
 
     private static String merged(String sent, String current) {

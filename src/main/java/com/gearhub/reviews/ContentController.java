@@ -1,7 +1,9 @@
 package com.gearhub.reviews;
 
 import com.gearhub.auth.CurrentUser;
+import com.gearhub.auth.AdminAccess;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,8 +39,11 @@ public class ContentController {
     private final ContentService content;
     private final InteractionService interactions;
     private final ContentImageService images;
+    private final AdminAccess adminAccess;
 
-    public ContentController(ContentService content, InteractionService interactions, ContentImageService images) {
+    public ContentController(ContentService content, InteractionService interactions, ContentImageService images,
+            AdminAccess adminAccess) {
+        this.adminAccess = adminAccess;
         this.content = content;
         this.interactions = interactions;
         this.images = images;
@@ -79,11 +84,12 @@ public class ContentController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String product,
+            @Parameter(description = "Slug do jogo: posts sobre ele e reviews dele") @RequestParam(required = false) String game,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "10") int size) {
         String text = q == null || q.isBlank() ? null : ContentService.likePattern(q);
-        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product), idOf(current));
+        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product, game), idOf(current));
     }
 
     @GetMapping("/me/saved")
@@ -92,7 +98,7 @@ public class ContentController {
             @AuthenticationPrincipal CurrentUser current,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "20") int size) {
-        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null), current.id());
+        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null, null), current.id());
     }
 
     @GetMapping("/products")
@@ -225,7 +231,9 @@ public class ContentController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Apaga o próprio comentário", security = @SecurityRequirement(name = "session"))
     public void deleteComment(@AuthenticationPrincipal CurrentUser current, @PathVariable UUID id) {
-        interactions.deleteComment(id, current.id(), "admin".equals(current.role()));
+        // Apagar comentário dos outros é ferramenta de admin: só com a verificação em duas etapas ativa
+        boolean admin = adminAccess.allowed(current);
+        interactions.deleteComment(id, current.id(), admin);
     }
 
     @PutMapping("/comments/{id}/like")

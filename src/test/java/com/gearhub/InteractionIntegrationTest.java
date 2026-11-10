@@ -358,6 +358,13 @@ class InteractionIntegrationTest {
                 .contains("\"key\":\"developer\",\"name\":\"Desenvolvedor\"", "\"key\":\"game-talker\"");
         assertThat(call("PUT", badge + "reviewer", null, Map.of()).statusCode()).isEqualTo(401);
         assertThat(call("PUT", badge + "reviewer", null, member.auth()).statusCode()).isEqualTo(403);
+
+        // Admin sem verificação em duas etapas não usa as ferramentas
+        HttpResponse<String> unprotected = call("PUT", badge + "reviewer", null, admin.auth());
+        assertThat(unprotected.statusCode()).isEqualTo(403);
+        assertThat(unprotected.body()).contains("Ative a verificação em duas etapas");
+        jdbc.update("UPDATE users SET two_factor_enabled_at = now() WHERE username = ?", admin.username());
+
         assertThat(call("PUT", badge + "inexistente", null, admin.auth()).statusCode()).isEqualTo(404);
 
         assertThat(call("PUT", badge + "reviewer", null, admin.auth()).body()).contains("\"key\":\"reviewer\"");

@@ -1,8 +1,10 @@
 package com.gearhub.users;
 
+import com.gearhub.admin.AuditService;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -23,8 +25,10 @@ public class BadgeService {
 
     private final JdbcClient jdbc;
     private final UserRepository users;
+    private final AuditService audit;
 
-    public BadgeService(JdbcClient jdbc, UserRepository users) {
+    public BadgeService(JdbcClient jdbc, UserRepository users, AuditService audit) {
+        this.audit = audit;
         this.jdbc = jdbc;
         this.users = users;
     }
@@ -68,6 +72,7 @@ public class BadgeService {
             statement = statement.param("admin", adminId);
         }
         statement.update();
+        audit.record(adminId, granted ? "admin.badge_grant" : "admin.badge_revoke", "user", target.getId(), Map.of("badge", key));
         return of(target.getId());
     }
 }

@@ -94,8 +94,12 @@ public final class CatalogResponses {
             OffsetDateTime syncedAt) {
     }
 
-    @Schema(description = "Página do jogo: ficha do IGDB e, se acompanhado, preço e jogadores da Steam")
-    public record GameResponse(GamePage game, MarketService.GameSummary steam) {
+    @Schema(description = "Nota da comunidade GearHub: média das reviews de jogo, de 0 a 10")
+    public record Community(@Schema(example = "9.2") java.math.BigDecimal score, int reviewCount) {
+    }
+
+    @Schema(description = "Página do jogo: ficha do IGDB, nota da comunidade e, se acompanhado, preço e jogadores da Steam")
+    public record GameResponse(GamePage game, MarketService.GameSummary steam, Community community) {
     }
 
     public record SteamLink(String slug) {

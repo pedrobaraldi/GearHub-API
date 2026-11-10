@@ -97,6 +97,22 @@ public class User {
         this.passwordHash = passwordHash;
     }
 
+    /** Novo e-mail volta a ficar sem confirmação. */
+    public void changeEmail(String email, String emailHash) {
+        this.email = email;
+        this.emailHash = emailHash;
+        this.emailVerifiedAt = null;
+        this.updatedAt = Instant.now();
+    }
+
+    /** Pediu para apagar a conta, mas ainda está no prazo de 30 dias para desistir. */
+    public boolean isRestorable() {
+        return deletedAt != null && deletedAt.isAfter(Instant.now().minus(java.time.Duration.ofDays(DELETION_GRACE_DAYS)));
+    }
+
+    /** Dias entre o pedido de exclusão e a exclusão definitiva. */
+    public static final int DELETION_GRACE_DAYS = 30;
+
     public void changePassword(String passwordHash) {
         this.passwordHash = passwordHash;
         this.updatedAt = Instant.now();
@@ -175,6 +191,10 @@ public class User {
 
     public String getAvatarUrl() {
         return avatarUrl;
+    }
+
+    public String getEmailHash() {
+        return emailHash;
     }
 
     public String getEmail() {

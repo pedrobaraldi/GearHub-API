@@ -77,9 +77,11 @@ public class MarketService {
     @Transactional(readOnly = true)
     public List<GameSummary> list(String sort, String search) {
         String order = SORTS.getOrDefault(sort == null ? "players" : sort, SORTS.get("players"));
-        String term = search == null || search.isBlank() ? null : "%" + search.strip().toLowerCase() + "%";
+        // Nome, gêneros e estúdio, sem acento
+        String term = search == null || search.isBlank() ? null : com.gearhub.config.SearchText.pattern(search);
         return jdbc.sql("SELECT " + SUMMARY_COLUMNS + " FROM market_games g"
-                + " WHERE (CAST(:term AS text) IS NULL OR lower(g.name) LIKE :term) ORDER BY " + order)
+                + " WHERE (CAST(:term AS text) IS NULL OR gh_unaccent(concat_ws(' ', g.name, array_to_string(g.genres, ' '), g.developers)) LIKE :term)"
+                + " ORDER BY " + order)
                 .param("term", term)
                 .query((rs, row) -> summary(rs))
                 .list();

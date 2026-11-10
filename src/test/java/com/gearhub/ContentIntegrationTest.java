@@ -143,6 +143,23 @@ class ContentIntegrationTest {
             "{\"modelo\":\"M1\",\"valor\":\"R$ 500\",\"sensor\":\"S1\",\"dpi\":\"26000\",\"peso\":\"60 g\",\"conexao\":\"USB-C\"}";
 
     @Test
+    void buscaIgnoraAcentoEOlhaTodosOsCampos() throws Exception {
+        Map<String, String> user = newUser();
+        String author = call("GET", "/api/v1/auth/me", null, user).body().replaceAll(".*\"username\":\"([^\"]+)\".*", "$1");
+        call("POST", "/api/v1/posts", "{\"body\":\"Upgrade de Memória DDR5 concluído\",\"topic\":\"discussao\",\"tags\":[\"Overclock\"]}", user);
+
+        // Sem acento, só pela tag, pelo @ do autor, e com palavras separadas
+        assertThat(call("GET", "/api/v1/feed?q=memoria", null, user).body()).contains("Upgrade de Memória DDR5");
+        assertThat(call("GET", "/api/v1/feed?q=OVERCLOCK", null, user).body()).contains("Upgrade de Memória DDR5");
+        assertThat(call("GET", "/api/v1/feed?q=" + author, null, user).body()).contains("Upgrade de Memória DDR5");
+        assertThat(call("GET", "/api/v1/feed?q=upgrade%20ddr5", null, user).body()).contains("Upgrade de Memória DDR5");
+        assertThat(call("GET", "/api/v1/feed?q=50%25", null, user).body()).doesNotContain("Upgrade de Memória DDR5");
+
+        // Busca geral: produto pela categoria, sem acento
+        assertThat(call("GET", "/api/v1/search?q=teclado", null, user).body()).contains("\"category\":\"Teclado\"");
+    }
+
+    @Test
     void publicaPostEApareceNoFeed() throws Exception {
         Map<String, String> user = newUser();
         HttpResponse<String> created = call("POST", "/api/v1/posts",

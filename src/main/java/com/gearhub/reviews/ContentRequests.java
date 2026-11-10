@@ -28,13 +28,23 @@ public final class ContentRequests {
 
             @Schema(description = "Endereços devolvidos por POST /uploads/images")
             @Size(max = 10, message = "Envie no máximo 10 imagens")
-            List<String> images) {
+            List<String> images,
+
+            @Schema(description = "Slug do jogo no catálogo (GET /catalog/games), quando o post é sobre um jogo",
+                    example = "elden-ring")
+            @Size(max = 120, message = "Jogo não encontrado")
+            String game) {
     }
 
     @Schema(description = "Informe o produto pela categoria, marca e modelo: se ele já existir, a review entra nele; senão, é criado. "
             + "productId continua aceito para ligar a um produto conhecido")
     public record CreateReview(
             UUID productId,
+
+            @Schema(description = "Review de jogo: slug do jogo no catálogo (GET /catalog/games). Dispensa categoria, marca e modelo",
+                    example = "elden-ring")
+            @Size(max = 120, message = "Jogo não encontrado")
+            String game,
 
             @Schema(description = "Slug da categoria", example = "mouse")
             @Size(max = 40, message = "Escolha uma categoria válida")

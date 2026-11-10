@@ -1,5 +1,6 @@
 package com.gearhub.auth;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.config.FieldValidationException;
 import com.gearhub.crypto.CryptoService;
 import com.gearhub.users.User;
@@ -52,10 +53,12 @@ public class TwoFactorService {
     private final RateLimiter rateLimiter;
     private final AuthProperties properties;
     private final JdbcClient jdbc;
+    private final AuditService audit;
     private final SecureRandom random = new SecureRandom();
 
     public TwoFactorService(UserRepository users, CryptoService crypto, PasswordEncoder passwords,
-            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc) {
+            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.crypto = crypto;
         this.passwords = passwords;
@@ -103,7 +106,7 @@ public class TwoFactorService {
         rateLimiter.check("2fa-ip:" + ip, properties.loginLimitPerMinute());
         rateLimiter.check("2fa-account:" + userId, ATTEMPTS_PER_MINUTE);
 
-        User user = users.findById(userId).filter(found -> found.getDeletedAt() == null)
+        User user = users.findById(userId).filter(found -> found.getDeletedAt() == null || found.isRestorable())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, EXPIRED));
         if (!acceptsTotpOrRecovery(userId, code)) {
             int attempts = ((Number) challenge.get("attempts")).intValue() + 1;
@@ -164,6 +167,8 @@ public class TwoFactorService {
             throw new FieldValidationException(Map.of("code", INVALID_CODE));
         }
         jdbc.sql("UPDATE users SET two_factor_enabled_at = now() WHERE id = :id").param("id", userId).update();
+        setProtectedBadge(userId, true);
+        audit.record(userId, "2fa.enable");
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user AND id <> :current")
                 .param("user", userId).param("current", currentSession).update();
         return newRecoveryCodes(userId);
@@ -197,6 +202,26 @@ public class TwoFactorService {
                 WHERE id = :id
                 """).param("id", userId).update();
         jdbc.sql("DELETE FROM two_factor_recovery_codes WHERE user_id = :user").param("user", userId).update();
+        setProtectedBadge(userId, false);
+        audit.record(userId, "2fa.disable");
+    }
+
+    /** Insígnia "Conta protegida" (com XP) acompanha a verificação: entra ao ativar, sai ao desativar. */
+    private void setProtectedBadge(UUID userId, boolean granted) {
+        if (granted) {
+            jdbc.sql("INSERT INTO user_badges (user_id, badge_key) VALUES (:user, 'protected') ON CONFLICT DO NOTHING")
+                    .param("user", userId).update();
+        } else {
+            jdbc.sql("DELETE FROM user_badges WHERE user_id = :user AND badge_key = 'protected'").param("user", userId).update();
+        }
+        jdbc.sql("SELECT refresh_user_progress(:user)").param("user", userId).query().listOfRows();
+    }
+
+    /** Confirmação de ações sensíveis em outras telas: aceita o código do app ou um de recuperação, uma vez só. */
+    @Transactional
+    public boolean verify(UUID userId, String code) {
+        rateLimiter.check("2fa-manage:" + userId, ATTEMPTS_PER_MINUTE);
+        return acceptsTotpOrRecovery(userId, code);
     }
 
     // ---------- Códigos ----------
