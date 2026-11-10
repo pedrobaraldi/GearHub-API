@@ -100,7 +100,12 @@ public class CatalogService {
             }
         }
         MarketService.GameSummary steam = page.steamAppid() == null ? null : market.summary(page.steamAppid()).orElse(null);
-        return new GameResponse(page, steam);
+        CatalogResponses.Community community = jdbc.sql("SELECT avg_score, review_count FROM products WHERE game_id = :game")
+                .param("game", page.igdbId())
+                .query((rs, row) -> new CatalogResponses.Community(rs.getBigDecimal("avg_score"), rs.getInt("review_count")))
+                .optional()
+                .orElse(new CatalogResponses.Community(null, 0));
+        return new GameResponse(page, steam, community);
     }
 
     /** Endereço antigo da aba Games (por appid da Steam): descobre a página do jogo no catálogo. */

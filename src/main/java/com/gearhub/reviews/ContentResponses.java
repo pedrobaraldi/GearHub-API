@@ -18,6 +18,10 @@ public final class ContentResponses {
             @Schema(description = "Se é um dos 100 primeiros (contorno RGB no automático)") boolean founder) {
     }
 
+    @Schema(description = "Jogo de que o post fala; a capa leva à página do jogo")
+    public record GameRef(@Schema(example = "elden-ring") String slug, String name, String coverUrl) {
+    }
+
     public record ProductRef(String slug, String name, String brand, String category, String imageUrl) {
     }
 
@@ -47,13 +51,14 @@ public final class ContentResponses {
             List<String> cons,
             List<String> tags,
             List<String> images,
+            GameRef game,
             @Schema(description = "Se quem está logado curtiu") boolean likedByMe,
             @Schema(description = "Se quem está logado salvou") boolean savedByMe,
             @Schema(description = "Se a publicação é de quem está logado") boolean mine) {
 
         FeedItem withViewer(boolean liked, boolean saved, boolean own) {
             return new FeedItem(kind, id, author, createdAt, title, body, category, likeCount, commentCount, product,
-                    score, coverUrl, scores, specs, pros, cons, tags, images, liked, saved, own);
+                    score, coverUrl, scores, specs, pros, cons, tags, images, game, liked, saved, own);
         }
     }
 
@@ -89,7 +94,7 @@ public final class ContentResponses {
     }
 
     @Schema(description = "Dados de um post para o formulário de edição")
-    public record PostDraft(String body, String topic, List<String> tags, List<String> images) {
+    public record PostDraft(String body, String topic, List<String> tags, List<String> images, GameRef game) {
     }
 
     @Schema(description = "Dados de uma review para o formulário de edição")
@@ -97,6 +102,7 @@ public final class ContentResponses {
             UUID productId,
             String productName,
             String category,
+            @Schema(description = "Jogo avaliado, nas reviews de jogo") GameRef game,
             String title,
             String body,
             Map<String, BigDecimal> scores,

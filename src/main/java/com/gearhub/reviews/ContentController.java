@@ -2,6 +2,7 @@ package com.gearhub.reviews;
 
 import com.gearhub.auth.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -79,11 +80,12 @@ public class ContentController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String product,
+            @Parameter(description = "Slug do jogo: posts sobre ele e reviews dele") @RequestParam(required = false) String game,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "10") int size) {
         String text = q == null || q.isBlank() ? null : ContentService.likePattern(q);
-        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product), idOf(current));
+        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product, game), idOf(current));
     }
 
     @GetMapping("/me/saved")
@@ -92,7 +94,7 @@ public class ContentController {
             @AuthenticationPrincipal CurrentUser current,
             @RequestParam(required = false) Instant before,
             @RequestParam(defaultValue = "20") int size) {
-        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null), current.id());
+        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null, null), current.id());
     }
 
     @GetMapping("/products")

@@ -288,6 +288,112 @@ class CatalogIntegrationTest {
         assertThat(call("/api/v1/catalog/steam/999999", null, auth).statusCode()).isEqualTo(404);
     }
 
+    private HttpResponse<String> patch(String path, String json, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(json)).header("Content-Type", "application/json");
+        headers.forEach(request::header);
+        return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void postSobreUmJogoMostraACapaNoFeed() throws Exception {
+        Map<String, String> auth = session();
+        HttpResponse<String> created = call("/api/v1/posts",
+                "{\"body\":\"Alguém já fechou a DLC?\",\"topic\":\"games\",\"game\":\"elden-ring\"}", auth);
+        assertThat(created.statusCode()).isEqualTo(201);
+        String id = created.body().replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
+
+        // Nome e capa vêm do catálogo, não do navegador
+        String game = "\"game\":{\"slug\":\"elden-ring\",\"name\":\"Elden Ring\","
+                + "\"coverUrl\":\"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co4jni.jpg\"}";
+        assertThat(call("/api/v1/feed?size=1", null, auth).body()).contains("Alguém já fechou a DLC?", game);
+        assertThat(call("/api/v1/posts/" + id + "/edit", null, auth).body()).contains(game);
+
+        // Editar sem jogo tira a ligação
+        assertThat(patch("/api/v1/posts/" + id, "{\"body\":\"Alguém já fechou a DLC?\",\"topic\":\"games\"}", auth)
+                .statusCode()).isEqualTo(204);
+        assertThat(call("/api/v1/posts/" + id + "/edit", null, auth).body()).contains("\"game\":null");
+    }
+
+    @Test
+    void postComJogoInexistenteERecusado() throws Exception {
+        Map<String, String> auth = session();
+        HttpResponse<String> missing = call("/api/v1/posts",
+                "{\"body\":\"Post\",\"topic\":\"games\",\"game\":\"nao-existe\"}", auth);
+        assertThat(missing.statusCode()).isEqualTo(400);
+        assertThat(missing.body()).contains("\"game\":\"Jogo não encontrado. Escolha outro.\"");
+
+        igdbDown = true;
+        HttpResponse<String> down = call("/api/v1/posts",
+                "{\"body\":\"Post\",\"topic\":\"games\",\"game\":\"hollow-knight\"}", auth);
+        assertThat(down.statusCode()).isEqualTo(400);
+        assertThat(down.body()).contains("Não foi possível conferir o jogo agora");
+    }
+
+    private String gameScores(int value) {
+        StringBuilder json = new StringBuilder("{");
+        jdbc.queryForList("SELECT c.id FROM criteria c JOIN categories k ON k.id = c.category_id WHERE k.slug = 'jogos'",
+                Integer.class).forEach(id -> json.append("\"").append(id).append("\":").append(value).append(","));
+        return json.deleteCharAt(json.length() - 1).append("}").toString();
+    }
+
+    @Test
+    void categoriaJogosTemNotasProprias() {
+        assertThat(jdbc.queryForList("""
+                SELECT c.label FROM criteria c JOIN categories k ON k.id = c.category_id WHERE k.slug = 'jogos' ORDER BY c.position
+                """, String.class)).containsExactly("Gráficos", "Jogabilidade", "História", "Desempenho", "Diversão");
+    }
+
+    @Test
+    void reviewDeJogoEntraNoJogoENaoNosProdutos() throws Exception {
+        Map<String, String> auth = session();
+        HttpResponse<String> created = call("/api/v1/reviews", """
+                {"game":"elden-ring","title":"Obra-prima","body":"Mundo enorme","scores":%s,"pros":["Exploração"],"cons":["Difícil"]}
+                """.formatted(gameScores(9)), auth);
+        assertThat(created.statusCode()).isEqualTo(201);
+        String id = created.body().replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
+
+        // O jogo virou o produto da categoria Jogos, ligado ao catálogo
+        assertThat(jdbc.queryForObject("""
+                SELECT k.slug FROM products p JOIN categories k ON k.id = p.category_id JOIN catalog_games g ON g.igdb_id = p.game_id
+                WHERE g.slug = 'elden-ring'
+                """, String.class)).isEqualTo("jogos");
+
+        String game = "\"game\":{\"slug\":\"elden-ring\",\"name\":\"Elden Ring\"";
+        String feed = call("/api/v1/feed?game=elden-ring", null, auth).body();
+        assertThat(feed).contains("Obra-prima", "\"category\":\"Jogos\"", game, "\"score\":9.0");
+        assertThat(call("/api/v1/reviews/" + id + "/edit", null, auth).body())
+                .contains("\"productName\":\"Elden Ring\"", "\"category\":\"jogos\"", game);
+
+        // Nota da comunidade na página do jogo
+        assertThat(call("/api/v1/catalog/games/elden-ring", null, auth).body())
+                .contains("\"community\":{\"score\":9.0,\"reviewCount\":1}");
+
+        // Jogo não aparece na lista de produtos (tem página própria em /games)
+        assertThat(call("/api/v1/products", null, auth).body()).doesNotContain("Elden Ring");
+
+        // A segunda review do mesmo jogo pela mesma pessoa é recusada
+        assertThat(call("/api/v1/reviews", "{\"game\":\"elden-ring\",\"title\":\"De novo\",\"scores\":" + gameScores(8) + "}", auth)
+                .statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void feedDoJogoJuntaPostsEReviews() throws Exception {
+        Map<String, String> auth = session();
+        call("/api/v1/posts", "{\"body\":\"Post do feed do jogo\",\"topic\":\"games\",\"game\":\"elden-ring\"}", auth);
+        call("/api/v1/posts", "{\"body\":\"Post sem jogo nenhum\",\"topic\":\"discussao\"}", auth);
+        String feed = call("/api/v1/feed?game=elden-ring&size=50", null, auth).body();
+        assertThat(feed).contains("Post do feed do jogo").doesNotContain("Post sem jogo nenhum");
+    }
+
+    @Test
+    void reviewDeJogoInexistenteERecusada() throws Exception {
+        HttpResponse<String> missing = call("/api/v1/reviews",
+                "{\"game\":\"nao-existe\",\"title\":\"x\",\"scores\":" + gameScores(7) + "}", session());
+        assertThat(missing.statusCode()).isEqualTo(400);
+        assertThat(missing.body()).contains("\"game\":\"Jogo não encontrado. Escolha outro.\"");
+    }
+
     @Test
     void tokenEReaproveitado() throws Exception {
         Map<String, String> auth = session();

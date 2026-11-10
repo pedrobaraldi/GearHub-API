@@ -1,9 +1,12 @@
 package com.gearhub.reviews;
 
+import com.gearhub.catalog.CatalogResponses;
+import com.gearhub.catalog.CatalogService;
 import com.gearhub.config.FieldValidationException;
 import com.gearhub.reviews.ContentResponses.Author;
 import com.gearhub.reviews.ContentResponses.FeedItem;
 import com.gearhub.reviews.ContentResponses.FeedPage;
+import com.gearhub.reviews.ContentResponses.GameRef;
 import com.gearhub.reviews.ContentResponses.PostDraft;
 import com.gearhub.reviews.ContentResponses.PostTopic;
 import com.gearhub.reviews.ContentResponses.ProductRef;
@@ -59,17 +62,22 @@ public class ContentService {
 
     /** Filtros do feed. Campos nulos não filtram. */
     public record FeedQuery(String category, String author, UUID savedBy, Instant before, String text, int size,
-            String product) {
+            String product, String game) {
     }
+
+    /** Categoria das reviews de jogo: o produto é o próprio jogo do catálogo. */
+    static final String GAMES_CATEGORY = "jogos";
 
     private final JdbcClient jdbc;
     private final ObjectMapper json;
     private final ContentImageService images;
+    private final CatalogService catalog;
 
-    public ContentService(JdbcClient jdbc, ObjectMapper json, ContentImageService images) {
+    public ContentService(JdbcClient jdbc, ObjectMapper json, ContentImageService images, CatalogService catalog) {
         this.jdbc = jdbc;
         this.json = json;
         this.images = images;
+        this.catalog = catalog;
     }
 
     @Transactional(readOnly = true)
@@ -84,10 +92,11 @@ public class ContentService {
     @Transactional
     public UUID createPost(UUID userId, ContentRequests.SavePost request) {
         return jdbc.sql("""
-                INSERT INTO posts (user_id, topic_id, body, images, tags)
-                VALUES (:user, :topic, :body, cast(:images AS jsonb), cast(:tags AS jsonb)) RETURNING id
+                INSERT INTO posts (user_id, topic_id, body, images, tags, game_id)
+                VALUES (:user, :topic, :body, cast(:images AS jsonb), cast(:tags AS jsonb), :game) RETURNING id
                 """)
                 .param("user", userId)
+                .param("game", gameIdOf(request.game()), Types.INTEGER)
                 .param("topic", topicIdOf(request.topic()), Types.INTEGER)
                 .param("body", request.body().strip())
                 .param("images", json.writeValueAsString(validImages(request.images(), List.of())))
@@ -102,9 +111,10 @@ public class ContentService {
                 .param("id", postId).query(String.class).single());
         jdbc.sql("""
                 UPDATE posts SET topic_id = :topic, body = :body, images = cast(:images AS jsonb),
-                       tags = cast(:tags AS jsonb), updated_at = now()
+                       tags = cast(:tags AS jsonb), game_id = :game, updated_at = now()
                 WHERE id = :id
                 """)
+                .param("game", gameIdOf(request.game()), Types.INTEGER)
                 .param("topic", topicIdOf(request.topic()), Types.INTEGER)
                 .param("body", request.body().strip())
                 .param("images", json.writeValueAsString(validImages(request.images(), currentImages)))
@@ -117,8 +127,10 @@ public class ContentService {
     public PostDraft postDraft(UUID userId, UUID postId) {
         requireOwner(ContentKind.POST, postId, userId);
         return jdbc.sql("""
-                SELECT p.body, t.slug, p.images::text AS images, p.tags::text AS tags FROM posts p
-                LEFT JOIN post_topics t ON t.id = p.topic_id WHERE p.id = :id
+                SELECT p.body, t.slug, p.images::text AS images, p.tags::text AS tags,
+                       g.slug AS game_slug, g.name AS game_name, g.cover_url AS game_cover FROM posts p
+                LEFT JOIN post_topics t ON t.id = p.topic_id
+                LEFT JOIN catalog_games g ON g.igdb_id = p.game_id WHERE p.id = :id
                 """)
                 .param("id", postId)
                 .query((rs, row) -> {
@@ -126,9 +138,29 @@ public class ContentService {
                     Set<String> inBody = hashtags(rs.getString("body"));
                     List<String> tags = parseList(rs.getString("tags")).stream()
                             .filter(tag -> !inBody.contains(tag)).toList();
-                    return new PostDraft(rs.getString("body"), rs.getString("slug"), tags, parseList(rs.getString("images")));
+                    return new PostDraft(rs.getString("body"), rs.getString("slug"), tags, parseList(rs.getString("images")),
+                            gameRef(rs));
                 })
                 .single();
+    }
+
+    /** Confere o jogo no catálogo (e guarda a ficha): nome e capa nunca vêm do navegador. */
+    private Integer gameIdOf(String slug) {
+        if (slug == null || slug.isBlank()) {
+            return null;
+        }
+        try {
+            return catalog.game(slug.strip()).game().igdbId();
+        } catch (ResponseStatusException e) {
+            throw new FieldValidationException(Map.of("game", e.getStatusCode().value() == 404
+                    ? "Jogo não encontrado. Escolha outro."
+                    : "Não foi possível conferir o jogo agora. Tente de novo em instantes."));
+        }
+    }
+
+    private static GameRef gameRef(ResultSet rs) throws SQLException {
+        String slug = rs.getString("game_slug");
+        return slug == null ? null : new GameRef(slug, rs.getString("game_name"), rs.getString("game_cover"));
     }
 
     private Integer topicIdOf(String slug) {
@@ -189,7 +221,9 @@ public class ContentService {
 
     @Transactional
     public UUID createReview(UUID userId, ContentRequests.CreateReview request) {
-        UUID productId = request.productId() != null ? request.productId() : findOrCreateProduct(request);
+        UUID productId = request.productId() != null ? request.productId()
+                : request.game() != null && !request.game().isBlank() ? gameProduct(request.game())
+                : findOrCreateProduct(request);
         Map<String, Object> product = jdbc.sql("SELECT category_id, image_url FROM products WHERE id = :id")
                 .param("id", productId)
                 .query().listOfRows().stream().findFirst()
@@ -272,6 +306,42 @@ public class ContentService {
                 .query(UUID.class).single();
     }
 
+    /** Produto de uma review de jogo: o próprio jogo do catálogo, criado na primeira review. */
+    private UUID gameProduct(String slug) {
+        CatalogResponses.GamePage game;
+        try {
+            game = catalog.game(slug.strip()).game();
+        } catch (ResponseStatusException e) {
+            throw new FieldValidationException(Map.of("game", e.getStatusCode().value() == 404
+                    ? "Jogo não encontrado. Escolha outro."
+                    : "Não foi possível conferir o jogo agora. Tente de novo em instantes."));
+        }
+        Optional<UUID> existing = jdbc.sql("SELECT id FROM products WHERE game_id = :game")
+                .param("game", game.igdbId()).query(UUID.class).optional();
+        if (existing.isPresent()) {
+            // A capa acompanha o catálogo
+            jdbc.sql("UPDATE products SET name = :name, image_url = :cover WHERE id = :id")
+                    .param("name", game.name()).param("cover", game.coverUrl(), Types.VARCHAR).param("id", existing.get()).update();
+            return existing.get();
+        }
+        String slugBase = game.slug();
+        String productSlug = slugBase;
+        for (int n = 2; jdbc.sql("SELECT count(*) FROM products WHERE slug = :slug").param("slug", productSlug)
+                .query(Integer.class).single() > 0; n++) {
+            productSlug = slugBase + "-" + n;
+        }
+        String studio = game.developers().isEmpty() ? "Jogo" : game.developers().getFirst();
+        return jdbc.sql("""
+                INSERT INTO products (slug, name, brand, category_id, image_url, game_id)
+                VALUES (:slug, :name, :brand, (SELECT id FROM categories WHERE slug = :category), :cover, :game)
+                RETURNING id
+                """)
+                .param("slug", productSlug).param("name", game.name()).param("brand", studio)
+                .param("category", GAMES_CATEGORY).param("cover", game.coverUrl(), Types.VARCHAR)
+                .param("game", game.igdbId())
+                .query(UUID.class).single();
+    }
+
     private static String tidy(String text) {
         return text == null ? "" : text.strip().replaceAll("\\s+", " ");
     }
@@ -322,15 +392,17 @@ public class ContentService {
                 });
         return jdbc.sql("""
                 SELECT r.product_id, p.brand, p.name, c.slug, r.title, r.body, r.specs::text AS specs,
-                       r.images::text AS images
+                       r.images::text AS images, g.slug AS game_slug, g.name AS game_name, g.cover_url AS game_cover
                 FROM reviews r
                 JOIN products p ON p.id = r.product_id
                 JOIN categories c ON c.id = p.category_id
+                LEFT JOIN catalog_games g ON g.igdb_id = p.game_id
                 WHERE r.id = :id
                 """)
                 .param("id", reviewId)
                 .query((rs, row) -> new ReviewDraft(rs.getObject("product_id", UUID.class),
-                        rs.getString("brand") + " " + rs.getString("name"), rs.getString("slug"),
+                        rs.getString("game_slug") != null ? rs.getString("name") : rs.getString("brand") + " " + rs.getString("name"),
+                        rs.getString("slug"), gameRef(rs),
                         rs.getString("title"), rs.getString("body"), scores, parseSpecs(rs.getString("specs")),
                         prosOrCons(reviewId, "pro"), prosOrCons(reviewId, "con"), parseList(rs.getString("images"))))
                 .single();
@@ -475,7 +547,7 @@ public class ContentService {
         String sql = """
                 SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
-                """ + (filtered ? " WHERE c.slug = :category" : "") + " ORDER BY p.brand, p.name";
+                WHERE p.game_id IS NULL""" + (filtered ? " AND c.slug = :category" : "") + " ORDER BY p.brand, p.name";
         JdbcClient.StatementSpec statement = jdbc.sql(sql);
         if (filtered) {
             statement = statement.param("category", category);
@@ -553,7 +625,7 @@ public class ContentService {
         List<ProductSummary> products = jdbc.sql("""
                 SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
-                WHERE p.avg_score IS NOT NULL
+                WHERE p.avg_score IS NOT NULL AND p.game_id IS NULL
                 ORDER BY p.avg_score DESC, p.review_count DESC, p.brand, p.name LIMIT :limit
                 """)
                 .param("limit", HALL_PRODUCTS)
@@ -600,7 +672,7 @@ public class ContentService {
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
                 .query((rs, row) -> author(rs)).list();
-        FeedPage publications = feed(new FeedQuery(null, null, null, null, like, SEARCH_LIMIT, null), viewerId);
+        FeedPage publications = feed(new FeedQuery(null, null, null, null, like, SEARCH_LIMIT, null, null), viewerId);
         return new SearchResults(products, people, publications.items());
     }
 
@@ -659,6 +731,11 @@ public class ContentService {
                                             JOIN categories k ON k.id = q.category_id WHERE q.slug = :product)
                     """);
         }
+        if (query.game() != null && !query.game().isBlank()) {
+            // Posts sobre o jogo e reviews do jogo
+            sql.append(kind == ContentKind.POST ? " AND r.game_id" : " AND p.game_id")
+                    .append(" = (SELECT igdb_id FROM catalog_games WHERE slug = :game)");
+        }
         if (query.before() != null) {
             sql.append(" AND r.created_at < :before");
         }
@@ -684,6 +761,9 @@ public class ContentService {
         if (query.product() != null && !query.product().isBlank()) {
             bound = bound.param("product", query.product());
         }
+        if (query.game() != null && !query.game().isBlank()) {
+            bound = bound.param("game", query.game());
+        }
         if (query.before() != null) {
             bound = bound.param("before", Timestamp.from(query.before()));
         }
@@ -706,6 +786,7 @@ public class ContentService {
         String sql = """
                 SELECT r.id, r.title, r.body, r.like_count, r.comment_count, r.created_at, c.name AS category,
                        r.images::text AS images, r.tags::text AS tags,
+                       g.slug AS game_slug, g.name AS game_name, g.cover_url AS game_cover,
                        u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
                        CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
                             WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
@@ -714,13 +795,14 @@ public class ContentService {
                 FROM posts r
                 JOIN users u ON u.id = r.user_id
                 LEFT JOIN post_topics c ON c.id = r.topic_id
+                LEFT JOIN catalog_games g ON g.igdb_id = r.game_id
                 """ + filters(ContentKind.POST, query) + " ORDER BY r.created_at DESC LIMIT :limit";
         return bind(jdbc.sql(sql), query, limit)
                 .query((rs, row) -> new FeedItem("post", rs.getObject("id", UUID.class), author(rs),
                         rs.getTimestamp("created_at").toInstant(), rs.getString("title"), rs.getString("body"),
                         rs.getString("category"), rs.getInt("like_count"), rs.getInt("comment_count"),
                         null, null, null, List.of(), List.of(), List.of(), List.of(),
-                        parseList(rs.getString("tags")), parseList(rs.getString("images")), false, false, false))
+                        parseList(rs.getString("tags")), parseList(rs.getString("images")), gameRef(rs), false, false, false))
                 .list();
     }
 
@@ -732,6 +814,7 @@ public class ContentService {
                 SELECT r.id, r.title, r.body, r.score, r.cover_url, r.like_count, r.comment_count, r.created_at,
                        r.specs::text AS specs, r.images::text AS images, c.id AS category_id, c.name AS category,
                        p.slug AS product_slug, p.name AS product_name, p.brand, p.image_url,
+                       g.slug AS game_slug, g.name AS game_name, g.cover_url AS game_cover,
                        u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
                        CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
                             WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
@@ -741,6 +824,7 @@ public class ContentService {
                 JOIN users u ON u.id = r.user_id
                 JOIN products p ON p.id = r.product_id
                 JOIN categories c ON c.id = p.category_id
+                LEFT JOIN catalog_games g ON g.igdb_id = p.game_id
                 """ + filters(ContentKind.REVIEW, query) + " ORDER BY r.created_at DESC LIMIT :limit";
         List<ReviewRow> rows = bind(jdbc.sql(sql), query, limit)
                 .query((rs, row) -> new ReviewRow(new FeedItem("review", rs.getObject("id", UUID.class), author(rs),
@@ -750,7 +834,7 @@ public class ContentService {
                                 rs.getString("brand"), rs.getString("category"), rs.getString("image_url")),
                         rs.getBigDecimal("score"), rs.getString("cover_url"),
                         List.of(), List.of(), List.of(), List.of(), List.of(), parseList(rs.getString("images")),
-                        false, false, false),
+                        gameRef(rs), false, false, false),
                         rs.getInt("category_id"), rs.getString("specs")))
                 .list();
         if (rows.isEmpty()) {
@@ -783,7 +867,7 @@ public class ContentService {
                     base.coverUrl(), scores.getOrDefault(base.id(), List.of()),
                     labeledSpecs(row.categoryId(), row.specsJson()),
                     pros.getOrDefault(base.id(), List.of()), cons.getOrDefault(base.id(), List.of()),
-                    List.of(), base.images(), false, false, false);
+                    List.of(), base.images(), base.game(), false, false, false);
         }).toList();
     }
 
