@@ -55,6 +55,15 @@ gearhub:
     secret-key: ${TURNSTILE_SECRET_KEY:}
     verify-uri: https://challenges.cloudflare.com/turnstile/v0/siteverify
     required: false
+  # Aba Games: coleta de hora em hora na Steam (preço, jogadores, avaliações). Não precisa de chave
+  market:
+    collect: ${GEARHUB_MARKET_COLLECT:true}
+    country: br
+    language: portuguese
+    store-uri: https://store.steampowered.com
+    api-uri: https://api.steampowered.com
+    # Pausa entre jogos para respeitar o limite da loja (cerca de 200 chamadas a cada 5 minutos)
+    pause-millis: 1500
   discord:
     client-id: ${DISCORD_CLIENT_ID:}
     client-secret: ${DISCORD_CLIENT_SECRET:}

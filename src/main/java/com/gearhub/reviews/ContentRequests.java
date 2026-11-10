@@ -31,9 +31,22 @@ public final class ContentRequests {
             List<String> images) {
     }
 
+    @Schema(description = "Informe o produto pela categoria, marca e modelo: se ele já existir, a review entra nele; senão, é criado. "
+            + "productId continua aceito para ligar a um produto conhecido")
     public record CreateReview(
-            @NotNull(message = "Escolha o produto")
             UUID productId,
+
+            @Schema(description = "Slug da categoria", example = "mouse")
+            @Size(max = 40, message = "Escolha uma categoria válida")
+            String category,
+
+            @Schema(example = "Logitech")
+            @Size(max = 60, message = "A marca deve ter no máximo 60 caracteres")
+            String brand,
+
+            @Schema(example = "G Pro X Superlight 2")
+            @Size(max = 120, message = "O modelo deve ter no máximo 120 caracteres")
+            String model,
 
             @Size(max = 120, message = "O título deve ter no máximo 120 caracteres")
             String title,

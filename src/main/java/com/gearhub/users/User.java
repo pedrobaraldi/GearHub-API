@@ -65,6 +65,14 @@ public class User {
     @Column(name = "is_pro")
     private boolean pro;
 
+    // Contorno escolhido para a foto; quem valida as opções é o RingStyleService
+    @Column(name = "ring_style")
+    private String ringStyle;
+
+    // Ordem de cadastro dos 100 primeiros, mantida pelo banco: ver a migração V21
+    @Column(name = "founder_number", insertable = false, updatable = false)
+    private Integer founderNumber;
+
     @Column(name = "created_at")
     private Instant createdAt = Instant.now();
 
@@ -191,6 +199,18 @@ public class User {
 
     public boolean isPro() {
         return pro;
+    }
+
+    public String getRingStyle() {
+        return ringStyle;
+    }
+
+    public void chooseRing(String ringStyle) {
+        this.ringStyle = ringStyle;
+    }
+
+    public Integer getFounderNumber() {
+        return founderNumber;
     }
 
     public Instant getCreatedAt() {

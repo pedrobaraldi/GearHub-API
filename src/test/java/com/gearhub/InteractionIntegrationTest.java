@@ -15,7 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import com.gearhub.market.MarketCollector;
+import com.gearhub.market.MarketProperties;
+import com.gearhub.market.SteamClient;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -35,6 +41,12 @@ class InteractionIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private JdbcClient jdbcClient;
+
+    @Autowired
+    private MarketProperties marketProperties;
 
     private static EmbeddedPostgres startPostgres() {
         try {
@@ -168,6 +180,20 @@ class InteractionIntegrationTest {
     void subidaDeRankFicaPendenteAteSerVista() throws Exception {
         Person person = newPerson();
         assertThat(call("GET", "/api/v1/me/rank-up", null, Map.of()).statusCode()).isEqualTo(401);
+
+        // Quem entra entre os 100 primeiros vê antes o desbloqueio do Fundador
+        Integer founderNumber = jdbc.queryForObject("SELECT founder_number FROM users WHERE username = ?", Integer.class, person.username());
+        if (founderNumber != null) {
+            jdbc.update("UPDATE users SET rank_name = 'Prata' WHERE username = ?", person.username());
+            HttpResponse<String> unlock = call("GET", "/api/v1/me/rank-up", null, person.auth());
+            assertThat(unlock.body()).contains("\"kind\":\"founder\"", "\"founderNumber\":" + founderNumber);
+            String unlockId = unlock.body().replaceAll(".*\"id\":(\\d+).*", "$1");
+            assertThat(call("POST", "/api/v1/me/rank-up/" + unlockId + "/seen", null, person.auth()).statusCode()).isEqualTo(204);
+            // Marcar o Fundador como visto não apaga a subida de rank que já estava esperando
+            assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).body()).contains("\"kind\":\"rank\"", "\"toRank\":\"Prata\"");
+            jdbc.update("UPDATE users SET rank_name = 'Cobre' WHERE username = ?", person.username());
+            jdbc.update("UPDATE rank_ups SET seen_at = now() WHERE user_id = (SELECT id FROM users WHERE username = ?)", person.username());
+        }
         assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
 
         jdbc.update("UPDATE users SET rank_name = 'Prata' WHERE username = ?", person.username());
@@ -175,7 +201,7 @@ class InteractionIntegrationTest {
         HttpResponse<String> pending = call("GET", "/api/v1/me/rank-up", null, person.auth());
         assertThat(pending.statusCode()).isEqualTo(200);
         // Duas subidas seguidas aparecem como uma: do rank de antes ao atual
-        assertThat(pending.body()).contains("\"fromRank\":\"Cobre\"", "\"toRank\":\"Cobalto\"");
+        assertThat(pending.body()).contains("\"kind\":\"rank\"", "\"fromRank\":\"Cobre\"", "\"toRank\":\"Cobalto\"");
 
         String id = pending.body().replaceAll(".*\"id\":(\\d+).*", "$1");
         assertThat(call("POST", "/api/v1/me/rank-up/" + id + "/seen", null, person.auth()).statusCode()).isEqualTo(204);
@@ -184,6 +210,131 @@ class InteractionIntegrationTest {
         // Descer não é subida
         jdbc.update("UPDATE users SET rank_name = 'Cobre' WHERE username = ?", person.username());
         assertThat(call("GET", "/api/v1/me/rank-up", null, person.auth()).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void contornoDaFotoSoAceitaRanksLiberados() throws Exception {
+        Person person = newPerson();
+        String profile = "/api/v1/users/" + person.username();
+        assertThat(call("GET", "/api/v1/me/ring-styles", null, person.auth()).body())
+                .contains("\"value\":\"Cobre\",\"label\":\"Cobre\",\"available\":true", "\"value\":\"Prata\",\"label\":\"Prata\",\"available\":false");
+
+        // Rank ainda não alcançado é recusado
+        HttpResponse<String> locked = call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Prata\"}", person.auth());
+        assertThat(locked.statusCode()).isEqualTo(400);
+        assertThat(locked.body()).contains("ringStyle");
+
+        // Publicar recalcula o nível pelo XP real: o post vem antes de subir o nível no teste
+        call("POST", "/api/v1/posts", "{\"body\":\"Post com contorno\"}", person.auth());
+        jdbc.update("UPDATE users SET level = 20 WHERE username = ?", person.username());
+        assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"Esmeralda\"}", person.auth()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+        // O feed mostra o mesmo contorno na foto do autor
+        assertThat(call("GET", "/api/v1/feed?author=" + person.username(), null, Map.of()).body()).contains("\"ringStyle\":\"Esmeralda\"");
+
+        // Se o nível cair, o contorno volta a ser automático sem apagar a escolha
+        jdbc.update("UPDATE users SET level = 1 WHERE username = ?", person.username());
+        assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":null");
+
+        if (jdbc.queryForObject("SELECT founder_number FROM users WHERE username = ?", Integer.class, person.username()) != null) {
+            assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"founder\"}", person.auth()).statusCode()).isEqualTo(200);
+            assertThat(call("GET", profile, null, Map.of()).body()).contains("\"ringStyle\":\"founder\"");
+        }
+
+        // Vazio volta ao automático
+        assertThat(call("PATCH", "/api/v1/users/me", "{\"ringStyle\":\"\"}", person.auth()).body()).contains("\"ringStyle\":null");
+    }
+
+    @Test
+    void abaGamesListaDetalhaEMostraHistorico() throws Exception {
+        HttpResponse<String> list = call("GET", "/api/v1/market/games", null, Map.of());
+        assertThat(list.statusCode()).isEqualTo(200);
+        assertThat(list.body()).contains("\"appid\":730", "\"name\":\"Counter-Strike 2\"");
+
+        jdbc.update("UPDATE market_games SET discount_percent = 90, final_cents = 1000, initial_cents = 10000, currency = 'BRL' WHERE steam_appid = 892970");
+        assertThat(call("GET", "/api/v1/market/games?sort=discount", null, Map.of()).body()).startsWith("[{\"appid\":892970");
+        assertThat(call("GET", "/api/v1/market/games?q=valhe", null, Map.of()).body()).contains("892970").doesNotContain("\"appid\":730");
+
+        jdbc.update("INSERT INTO market_price_snapshots (steam_appid, taken_at, currency, initial_cents, final_cents, discount_percent) VALUES (892970, now() - interval '40 days', 'BRL', 10000, 10000, 0), (892970, now() - interval '2 days', 'BRL', 10000, 1000, 90)");
+        jdbc.update("INSERT INTO market_player_snapshots (steam_appid, taken_at, players) VALUES (892970, now() - interval '3 hours', 5000), (892970, now() - interval '1 hour', 7000)");
+
+        HttpResponse<String> detail = call("GET", "/api/v1/market/games/892970", null, Map.of());
+        assertThat(detail.body()).contains("\"lowestCents\":1000", "\"peakPlayers24h\":7000", "\"peakPlayersAll\":7000");
+
+        // 30 dias: o preço de antes do intervalo abre a linha, e a queda aparece depois
+        HttpResponse<String> history = call("GET", "/api/v1/market/games/892970/history?range=30d", null, Map.of());
+        assertThat(history.body()).contains("\"range\":\"30d\"", "\"finalCents\":10000", "\"finalCents\":1000", "\"players\":7000");
+
+        assertThat(call("GET", "/api/v1/market/games/1", null, Map.of()).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void coletaGravaPrecoSoQuandoMuda() throws Exception {
+        // Steam falsa: os testes nunca chamam a Steam de verdade
+        int[] price = {5000};
+        SteamClient steam = new SteamClient(marketProperties) {
+            @Override
+            public Optional<Details> details(int appid) {
+                return Optional.of(new Details("Terraria", null, "Cave", "Re-Logic", List.of("Ação", "Aventura"), "16 mai. 2011",
+                        false, new Price("BRL", 5000, price[0], price[0] < 5000 ? 50 : 0)));
+            }
+
+            @Override
+            public Optional<Integer> currentPlayers(int appid) {
+                return Optional.of(30000);
+            }
+
+            @Override
+            public Optional<Reviews> reviews(int appid) {
+                return Optional.of(new Reviews(970, 30, "Extremamente positivas"));
+            }
+        };
+        MarketCollector collector = new MarketCollector(jdbcClient, steam, marketProperties);
+
+        assertThat(collector.collect(105600)).isTrue();
+        assertThat(collector.collect(105600)).isTrue();
+        price[0] = 2500;
+        assertThat(collector.collect(105600)).isTrue();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM market_price_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM market_player_snapshots WHERE steam_appid = 105600", Integer.class)).isEqualTo(3);
+        assertThat(call("GET", "/api/v1/market/games/105600", null, Map.of()).body())
+                .contains("\"finalCents\":2500", "\"discountPercent\":50", "\"reviewPercent\":97", "\"genres\":[\"Ação\",\"Aventura\"]");
+    }
+
+    @Test
+    void reviewPorMarcaEModeloUsaOProdutoQueJaExisteOuCriaUmNovo() throws Exception {
+        Person first = newPerson();
+        Person second = newPerson();
+        String review = """
+                {"category":"mouse","brand":"%s","model":"%s","title":"Review","body":"Texto com tamanho suficiente",
+                 "scores":%s,"specs":%s}
+                """;
+
+        // Produto que já está no catálogo: escrito com outra caixa, espaços extras e a marca no modelo
+        String existing = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'razer-viper-v3-pro'", String.class);
+        int before = jdbc.queryForObject("SELECT count(*) FROM products", Integer.class);
+        HttpResponse<String> joined = call("POST", "/api/v1/reviews",
+                review.formatted("razer", "Razer  viper v3 PRO", scores("mouse", 8), SPECS), first.auth());
+        assertThat(joined.statusCode()).as(joined.body()).isEqualTo(201);
+        assertThat(jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(joined))).isEqualTo(existing);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isEqualTo(before);
+
+        // Produto novo: é criado, e a próxima review do mesmo modelo entra nele
+        HttpResponse<String> created = call("POST", "/api/v1/reviews",
+                review.formatted("Pulsar", "X2 Mini Ação", scores("mouse", 9), SPECS), first.auth());
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+        String newProduct = jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(created));
+        assertThat(jdbc.queryForObject("SELECT slug FROM products WHERE id = ?::uuid", String.class, newProduct)).isEqualTo("pulsar-x2-mini-acao");
+
+        HttpResponse<String> again = call("POST", "/api/v1/reviews",
+                review.formatted("PULSAR", "x2 mini ação", scores("mouse", 7), SPECS), second.auth());
+        assertThat(jdbc.queryForObject("SELECT product_id::text FROM reviews WHERE id = ?::uuid", String.class, idIn(again))).isEqualTo(newProduct);
+        assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, newProduct)).isEqualTo(2);
+
+        // A página do produto mostra só o que os reviewers preencheram na ficha
+        assertThat(call("GET", "/api/v1/products/pulsar-x2-mini-acao", null, Map.of()).body())
+                .contains("\"label\":\"Modelo\",\"value\":\"M\"", "\"label\":\"Tipo de sensor\",\"value\":\"Óptico\"", "\"about\":null");
     }
 
     @Test

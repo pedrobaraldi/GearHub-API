@@ -29,13 +29,21 @@ public class GearProfileController {
     private final UserProgressService progress;
     private final BadgeService badges;
     private final RankUpService rankUps;
+    private final RingStyleService ringStyles;
 
     public GearProfileController(GearProfileService service, UserProgressService progress, BadgeService badges,
-            RankUpService rankUps) {
+            RankUpService rankUps, RingStyleService ringStyles) {
         this.service = service;
         this.progress = progress;
         this.badges = badges;
         this.rankUps = rankUps;
+        this.ringStyles = ringStyles;
+    }
+
+    @GetMapping("/me/ring-styles")
+    @Operation(summary = "Lista os contornos da foto e quais a pessoa já liberou", security = @SecurityRequirement(name = "session"))
+    public List<RingStyleService.Option> ringStyles(@AuthenticationPrincipal CurrentUser current) {
+        return ringStyles.options(current.id());
     }
 
     @GetMapping("/me/rank-up")

@@ -22,7 +22,8 @@ public class UserProgressService {
     @Schema(description = "`levelStartXp` e `nextLevelXp` delimitam a barra do nível atual")
     public record Progress(String username, String displayName, String avatarUrl, boolean pro, String rankName,
             int level, int xp, int levelStartXp, int nextLevelXp, List<Activity> activities, List<Rank> ranks,
-            List<BadgeService.Badge> badges) {
+            List<BadgeService.Badge> badges,
+            @Schema(description = "Contorno da foto que vale agora; nulo é automático") String ringStyle) {
     }
 
     private record Person(UUID id, String username, String displayName, String avatarUrl, boolean pro, String rankName,
@@ -31,10 +32,12 @@ public class UserProgressService {
 
     private final JdbcClient jdbc;
     private final BadgeService badges;
+    private final RingStyleService ringStyles;
 
-    public UserProgressService(JdbcClient jdbc, BadgeService badges) {
+    public UserProgressService(JdbcClient jdbc, BadgeService badges, RingStyleService ringStyles) {
         this.jdbc = jdbc;
         this.badges = badges;
+        this.ringStyles = ringStyles;
     }
 
     @Transactional(readOnly = true)
@@ -68,6 +71,6 @@ public class UserProgressService {
 
         return new Progress(person.username(), person.displayName(), person.avatarUrl(), person.pro(), person.rankName(),
                 person.level(), person.xp(), person.levelStartXp(), person.nextLevelXp(), activities, ranks,
-                badges.of(person.id()));
+                badges.of(person.id()), ringStyles.effective(person.id()));
     }
 }

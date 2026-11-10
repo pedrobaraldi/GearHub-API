@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -188,8 +189,9 @@ public class ContentService {
 
     @Transactional
     public UUID createReview(UUID userId, ContentRequests.CreateReview request) {
+        UUID productId = request.productId() != null ? request.productId() : findOrCreateProduct(request);
         Map<String, Object> product = jdbc.sql("SELECT category_id, image_url FROM products WHERE id = :id")
-                .param("id", request.productId())
+                .param("id", productId)
                 .query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new FieldValidationException(Map.of("productId", "Produto não encontrado")));
 
@@ -203,7 +205,7 @@ public class ContentService {
                             cast(:specs AS jsonb)) RETURNING id
                     """)
                     .param("user", userId)
-                    .param("product", request.productId())
+                    .param("product", productId)
                     .param("title", blankToNull(request.title()), Types.VARCHAR)
                     .param("body", blankToNull(request.body()), Types.VARCHAR)
                     .param("score", valid.average(), Types.NUMERIC)
@@ -215,8 +217,69 @@ public class ContentService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Você já publicou uma review desse produto");
         }
         writeDetails(reviewId, valid.scores(), request.pros(), request.cons());
-        refreshProductScore(request.productId());
+        refreshProductScore(productId);
         return reviewId;
+    }
+
+    /**
+     * Produto informado por categoria, marca e modelo. Se já existir um igual (sem diferenciar maiúsculas,
+     * espaços extras, ou o modelo escrito com a marca na frente), a review entra nele; senão, ele é criado.
+     */
+    private UUID findOrCreateProduct(ContentRequests.CreateReview request) {
+        Map<String, String> errors = new java.util.LinkedHashMap<>();
+        String brand = tidy(request.brand());
+        String model = tidy(request.model());
+        Integer categoryId = request.category() == null ? null : jdbc.sql("SELECT id FROM categories WHERE slug = :slug")
+                .param("slug", request.category().strip()).query(Integer.class).optional().orElse(null);
+        if (categoryId == null) {
+            errors.put("category", "Escolha a categoria do produto");
+        }
+        if (brand.isEmpty()) {
+            errors.put("brand", "Informe a marca");
+        }
+        if (model.isEmpty()) {
+            errors.put("model", "Informe o modelo");
+        }
+        if (!errors.isEmpty()) {
+            throw new FieldValidationException(errors);
+        }
+        // Quem escreve "Logitech G Pro" no modelo também cai no produto "G Pro" da Logitech
+        if (model.toLowerCase().startsWith(brand.toLowerCase() + " ")) {
+            model = model.substring(brand.length()).strip();
+        }
+
+        Optional<UUID> existing = jdbc.sql("""
+                SELECT id FROM products
+                WHERE category_id = :category
+                  AND lower(regexp_replace(brand, '\\s+', ' ', 'g')) = lower(:brand)
+                  AND lower(regexp_replace(name, '\\s+', ' ', 'g')) IN (lower(:model), lower(:brand || ' ' || :model))
+                ORDER BY review_count DESC LIMIT 1
+                """)
+                .param("category", categoryId).param("brand", brand).param("model", model)
+                .query(UUID.class).optional();
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        String base = slugOf(brand + " " + model);
+        String slug = base;
+        for (int n = 2; jdbc.sql("SELECT count(*) FROM products WHERE slug = :slug").param("slug", slug)
+                .query(Integer.class).single() > 0; n++) {
+            slug = base + "-" + n;
+        }
+        return jdbc.sql("INSERT INTO products (slug, name, brand, category_id) VALUES (:slug, :name, :brand, :category) RETURNING id")
+                .param("slug", slug).param("name", model).param("brand", brand).param("category", categoryId)
+                .query(UUID.class).single();
+    }
+
+    private static String tidy(String text) {
+        return text == null ? "" : text.strip().replaceAll("\\s+", " ");
+    }
+
+    private static String slugOf(String text) {
+        String plain = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+        String slug = plain.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        return slug.isEmpty() ? "produto" : slug;
     }
 
     @Transactional
@@ -436,19 +499,31 @@ public class ContentService {
                 .param("slug", slug)
                 .query((rs, row) -> new ContentResponses.ProductScore(rs.getString("label"), rs.getBigDecimal("average")))
                 .list();
+        // Especificações vêm só do que os reviewers preencheram: o valor mais informado em cada campo da ficha
+        List<ContentResponses.ProductSpec> specs = jdbc.sql("""
+                SELECT f.label,
+                       (SELECT r.specs ->> f.key FROM reviews r
+                        WHERE r.product_id = p.id AND r.deleted_at IS NULL
+                          AND coalesce(r.specs ->> f.key, '') NOT IN ('', 'Não informado', 'Não se aplica')
+                        GROUP BY r.specs ->> f.key
+                        ORDER BY count(*) DESC, max(r.created_at) DESC LIMIT 1) AS value
+                FROM spec_fields f JOIN products p ON p.category_id = f.category_id
+                WHERE p.slug = :slug
+                ORDER BY f.position
+                """)
+                .param("slug", slug)
+                .query((rs, row) -> new ContentResponses.ProductSpec(rs.getString("label"), rs.getString("value")))
+                .list().stream().filter(spec -> spec.value() != null).toList();
+        // O texto "Sobre" não vem de nenhum formulário: não é enviado
         return jdbc.sql("""
-                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.about, p.specs::text AS specs,
-                       p.avg_score, p.review_count
+                SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
                 WHERE p.slug = :slug
                 """)
                 .param("slug", slug)
                 .query((rs, row) -> new ContentResponses.ProductDetail(rs.getObject("id", UUID.class), rs.getString("slug"),
                         rs.getString("name"), rs.getString("brand"), rs.getString("category"), rs.getString("image_url"),
-                        rs.getString("about"),
-                        json.readValue(rs.getString("specs"), new TypeReference<List<ContentResponses.ProductSpec>>() {
-                        }),
-                        rs.getBigDecimal("avg_score"), rs.getInt("review_count"), scores))
+                        null, specs, rs.getBigDecimal("avg_score"), rs.getInt("review_count"), scores))
                 .optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Produto não encontrado"));
     }
@@ -514,9 +589,14 @@ public class ContentService {
                         rs.getString("image_url"), rs.getBigDecimal("avg_score"), rs.getInt("review_count")))
                 .list();
         List<Author> people = jdbc.sql("""
-                SELECT username, display_name, avatar_url, rank_name, level, is_pro FROM users
-                WHERE deleted_at IS NULL AND (username ILIKE :like OR display_name ILIKE :like)
-                ORDER BY display_name LIMIT :limit
+                SELECT u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
+                FROM users u
+                WHERE u.deleted_at IS NULL AND (u.username ILIKE :like OR u.display_name ILIKE :like)
+                ORDER BY u.display_name LIMIT :limit
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
                 .query((rs, row) -> author(rs)).list();
@@ -618,14 +698,19 @@ public class ContentService {
 
     static Author author(ResultSet rs) throws SQLException {
         return new Author(rs.getString("username"), rs.getString("display_name"), rs.getString("avatar_url"),
-                rs.getString("rank_name"), rs.getInt("level"), rs.getBoolean("is_pro"));
+                rs.getString("rank_name"), rs.getInt("level"), rs.getBoolean("is_pro"), rs.getString("ring_style"),
+                rs.getBoolean("founder"));
     }
 
     private List<FeedItem> loadPosts(FeedQuery query, int limit) {
         String sql = """
                 SELECT r.id, r.title, r.body, r.like_count, r.comment_count, r.created_at, c.name AS category,
                        r.images::text AS images, r.tags::text AS tags,
-                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
+                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
                 FROM posts r
                 JOIN users u ON u.id = r.user_id
                 LEFT JOIN post_topics c ON c.id = r.topic_id
@@ -647,7 +732,11 @@ public class ContentService {
                 SELECT r.id, r.title, r.body, r.score, r.cover_url, r.like_count, r.comment_count, r.created_at,
                        r.specs::text AS specs, r.images::text AS images, c.id AS category_id, c.name AS category,
                        p.slug AS product_slug, p.name AS product_name, p.brand, p.image_url,
-                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
+                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
                 FROM reviews r
                 JOIN users u ON u.id = r.user_id
                 JOIN products p ON p.id = r.product_id

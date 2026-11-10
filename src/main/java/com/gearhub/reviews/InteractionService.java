@@ -81,7 +81,11 @@ public class InteractionService {
         return jdbc.sql("""
                 SELECT c.id, c.user_id, c.body, c.like_count, c.created_at, c.parent_id,
                        t.display_name AS reply_to,
-                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro
+                       u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
+                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
+                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
+                       END AS ring_style,
+                       u.founder_number IS NOT NULL AS founder
                 FROM comments c JOIN users u ON u.id = c.user_id
                 LEFT JOIN users t ON t.id = c.reply_to_user_id
                 WHERE c.%s = :id AND c.deleted_at IS NULL
