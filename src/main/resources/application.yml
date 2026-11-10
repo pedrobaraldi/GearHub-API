@@ -64,6 +64,12 @@ gearhub:
     api-uri: https://api.steampowered.com
     # Pausa entre jogos para respeitar o limite da loja (cerca de 200 chamadas a cada 5 minutos)
     pause-millis: 1500
+  # Catálogo de jogos (api-docs.igdb.com). Credenciais de um app no console da Twitch
+  igdb:
+    client-id: ${IGDB_CLIENT_ID:}
+    client-secret: ${IGDB_CLIENT_SECRET:}
+    token-uri: https://id.twitch.tv/oauth2/token
+    api-uri: https://api.igdb.com/v4
   discord:
     client-id: ${DISCORD_CLIENT_ID:}
     client-secret: ${DISCORD_CLIENT_SECRET:}

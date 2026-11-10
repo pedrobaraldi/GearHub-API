@@ -18,8 +18,15 @@ public class AuthService {
 
     private static final String INVALID_CREDENTIALS = "E-mail ou senha incorretos";
 
-    /** Resultado do login ou cadastro. O token puro só existe aqui, a caminho do cookie. */
-    public record AuthResult(User user, String token) {
+    /**
+     * Resultado do login ou cadastro. Os tokens puros só existem aqui, a caminho do cookie: a sessão, ou,
+     * numa conta com verificação em duas etapas, o login em espera que ainda pede o código.
+     */
+    public record AuthResult(User user, String sessionToken, String challengeToken) {
+
+        public boolean needsCode() {
+            return challengeToken != null;
+        }
     }
 
     private final UserRepository users;
@@ -29,11 +36,12 @@ public class AuthService {
     private final RateLimiter rateLimiter;
     private final AuthProperties properties;
     private final TurnstileService turnstile;
+    private final TwoFactorService twoFactor;
     private final String dummyHash;
 
     public AuthService(UserRepository users, SessionRepository sessions, PasswordEncoder passwords,
             CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties,
-            TurnstileService turnstile) {
+            TurnstileService turnstile, TwoFactorService twoFactor) {
         this.users = users;
         this.sessions = sessions;
         this.passwords = passwords;
@@ -41,6 +49,7 @@ public class AuthService {
         this.rateLimiter = rateLimiter;
         this.properties = properties;
         this.turnstile = turnstile;
+        this.twoFactor = twoFactor;
         this.dummyHash = passwords.encode(crypto.newToken());
     }
 
@@ -66,7 +75,7 @@ public class AuthService {
             // Dois cadastros iguais ao mesmo tempo: o índice único do banco decide
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse e-mail ou nome de usuário já está em uso");
         }
-        return new AuthResult(user, openSession(user, ip, userAgent));
+        return new AuthResult(user, openSession(user, ip, userAgent), null);
     }
 
     @Transactional
@@ -83,12 +92,16 @@ public class AuthService {
         if (user == null || user.getPasswordHash() == null || !matches) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS);
         }
-        return new AuthResult(user, openSession(user, ip, userAgent));
+        return start(user, ip, userAgent);
     }
 
+    /** Senha certa ou volta do Google/Discord: com 2FA ativa, a sessão só nasce depois do código. */
     @Transactional
-    public String openOAuthSession(User user, String ip, String userAgent) {
-        return openSession(user, ip, userAgent);
+    public AuthResult start(User user, String ip, String userAgent) {
+        if (twoFactor.isEnabled(user.getId())) {
+            return new AuthResult(user, null, twoFactor.openChallenge(user));
+        }
+        return new AuthResult(user, openSession(user, ip, userAgent), null);
     }
 
     @Transactional
@@ -101,6 +114,7 @@ public class AuthService {
         return users.findById(userId).orElseThrow();
     }
 
+    @Transactional
     public String openSession(User user, String ip, String userAgent) {
         String token = crypto.newToken();
         Instant expiresAt = Instant.now().plus(properties.sessionTtl());

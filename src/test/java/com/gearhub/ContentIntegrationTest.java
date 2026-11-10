@@ -108,6 +108,16 @@ class ContentIntegrationTest {
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private Map<String, String> viewer;
+
+    // Todo o conteúdo exige conta: quem só olha também entra com uma sessão
+    private Map<String, String> viewer() throws Exception {
+        if (viewer == null) {
+            viewer = newUser();
+        }
+        return viewer;
+    }
+
     private Map<String, String> newUser() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         HttpResponse<String> response = call("POST", "/api/v1/auth/register", """
@@ -139,7 +149,7 @@ class ContentIntegrationTest {
                 "{\"body\":\"Oi, comunidade #Sensor\",\"topic\":\"mouse\",\"tags\":[\"#Viper\"]}", user);
         assertThat(created.statusCode()).isEqualTo(201);
 
-        String feed = call("GET", "/api/v1/feed?size=3", null, Map.of()).body();
+        String feed = call("GET", "/api/v1/feed?size=3", null, viewer()).body();
         assertThat(feed).contains("\"kind\":\"post\"", "Oi, comunidade", "\"tags\":[\"viper\",\"sensor\"]", "\"category\":\"Mouse\"");
     }
 
@@ -166,7 +176,7 @@ class ContentIntegrationTest {
         HttpResponse<String> soFicha = call("POST", "/api/v1/reviews",
                 "{\"productId\":\"%s\",\"specs\":%s}".formatted(productId("razer-viper-v3-pro"), MOUSE_SPECS), newUser());
         assertThat(soFicha.statusCode()).isEqualTo(201);
-        assertThat(call("GET", "/api/v1/feed?size=1", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/feed?size=1", null, viewer()).body())
                 .contains("\"title\":null", "\"score\":null");
     }
 
@@ -187,7 +197,7 @@ class ContentIntegrationTest {
                 "{\"productId\":\"%s\",\"specs\":%s,\"scores\":{\"%s\":8}}".formatted(productId("razer-viper-v3-pro"), MOUSE_SPECS, sensor),
                 newUser());
         assertThat(parcial.statusCode()).isEqualTo(201);
-        assertThat(call("GET", "/api/v1/feed?size=1", null, Map.of()).body()).contains("\"score\":8.0");
+        assertThat(call("GET", "/api/v1/feed?size=1", null, viewer()).body()).contains("\"score\":8.0");
     }
 
     @Test
@@ -206,7 +216,7 @@ class ContentIntegrationTest {
                 """.formatted(mouse, mouseScoresJson(), MOUSE_SPECS);
         assertThat(call("POST", "/api/v1/reviews", body, user).statusCode()).isEqualTo(201);
 
-        String feed = call("GET", "/api/v1/feed?size=5", null, Map.of()).body();
+        String feed = call("GET", "/api/v1/feed?size=5", null, viewer()).body();
         assertThat(feed).contains("Review completa", "\"score\":8.0", "\"label\":\"Tipo de sensor\"", "\"value\":\"S1\"", "Leve", "Caro");
         assertThat(jdbc.queryForObject("SELECT review_count FROM products WHERE id = ?::uuid", Integer.class, mouse))
                 .isEqualTo(2);
@@ -218,11 +228,11 @@ class ContentIntegrationTest {
 
     @Test
     void feedPaginaEFiltra() throws Exception {
-        HttpResponse<String> first = call("GET", "/api/v1/feed?size=2&category=teclado", null, Map.of());
+        HttpResponse<String> first = call("GET", "/api/v1/feed?size=2&category=teclado", null, viewer());
         assertThat(first.statusCode()).isEqualTo(200);
         assertThat(first.body()).contains("\"nextCursor\":null").doesNotContain("\"category\":\"Mouse\"");
-        assertThat(call("GET", "/api/v1/feed?author=pedrolm", null, Map.of()).body()).contains("Razer acerta em cheio");
-        assertThat(call("GET", "/api/v1/products?category=mouse", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/feed?author=pedrolm", null, viewer()).body()).contains("Razer acerta em cheio");
+        assertThat(call("GET", "/api/v1/products?category=mouse", null, viewer()).body())
                 .contains("Viper V3 Pro").doesNotContain("Wooting");
     }
 
@@ -252,7 +262,7 @@ class ContentIntegrationTest {
         assertThat(ok.statusCode()).isEqualTo(200);
         String url = ok.body().replaceAll(".*\"avatarUrl\":\"([^\"]+)\".*", "$1");
         assertThat(url).startsWith("/uploads/avatars/").endsWith(".png");
-        assertThat(call("GET", url, null, Map.of()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", url, null, viewer()).statusCode()).isEqualTo(200);
 
         HttpResponse<String> fake = uploadAvatar("<script>alert(1)</script> nao e imagem".getBytes(StandardCharsets.UTF_8), user);
         assertThat(fake.statusCode()).isEqualTo(400);
@@ -296,6 +306,42 @@ class ContentIntegrationTest {
         Integer before = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
         call("GET", "/api/v1/auth/google/callback?code=abc&state=" + value, null, Map.of("Cookie", state));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(before);
+    }
+
+    @Test
+    void googleComDuasEtapasPedeOCodigoAntesDaSessao() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        googleProfile = """
+                {"sub":"%s","email":"g%s@gmail.com","email_verified":true,"name":"Conta Google 2FA"}
+                """.formatted(id, id);
+        String state = startGoogleLogin();
+        String callbackPath = "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1];
+        HttpResponse<String> first = call("GET", callbackPath, null, Map.of("Cookie", state));
+        Map<String, String> auth = Map.of("Cookie", first.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+
+        String secret = call("POST", "/api/v1/me/2fa/setup", null, auth).body()
+                .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
+        HttpResponse<String> enabled = call("POST", "/api/v1/me/2fa/enable",
+                "{\"code\":\"" + com.gearhub.auth.Totp.code(secret, com.gearhub.auth.Totp.currentStep()) + "\"}", auth);
+        assertThat(enabled.statusCode()).isEqualTo(200);
+        String recovery = enabled.body().replaceAll(".*\\[\"([a-z2-9-]+)\".*", "$1");
+
+        // Volta do Google com 2FA: vai para a etapa do código, sem cookie de sessão
+        HttpResponse<String> second = call("GET", callbackPath, null, Map.of("Cookie", state));
+        assertThat(second.statusCode()).isEqualTo(302);
+        assertThat(second.headers().firstValue("location")).hasValue("http://localhost:3000/auth?etapa=codigo");
+        String challenge = second.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
+        assertThat(challenge).startsWith("gearhub_2fa=");
+
+        String next = com.gearhub.auth.Totp.code(secret, com.gearhub.auth.Totp.currentStep() + 1);
+        HttpResponse<String> verified = call("POST", "/api/v1/auth/2fa/verify", "{\"code\":\"" + next + "\"}",
+                Map.of("Cookie", challenge));
+        assertThat(verified.statusCode()).isEqualTo(200);
+        assertThat(verified.body()).contains("Conta Google 2FA");
+
+        // Conta sem senha: para desligar, basta o código
+        assertThat(call("POST", "/api/v1/me/2fa/disable", "{\"code\":\"" + recovery + "\"}", auth).statusCode())
+                .isEqualTo(204);
     }
 
     private String startDiscordLogin() throws Exception {

@@ -9,6 +9,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +61,30 @@ class ApiBaseIntegrationTest {
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    private String session;
+
+    // Todo o conteúdo exige conta: as leituras entram com uma sessão de quem só olha
+    private HttpResponse<String> read(String path) throws Exception {
+        if (session == null) {
+            String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            String json = """
+                    {"displayName":"Leitor","username":"l%s","email":"%s@exemplo.com","password":"Senha-Forte-123","passwordConfirmation":"Senha-Forte-123"}
+                    """.formatted(id, id);
+            HttpRequest register = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/auth/register"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+            HttpResponse<String> created = HTTP.send(register, HttpResponse.BodyHandlers.ofString());
+            assertThat(created.statusCode()).isEqualTo(201);
+            session = created.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .header("Cookie", session)
+                .GET()
+                .build();
+        return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     @Test
     void healthEstaPublico() throws Exception {
         HttpResponse<String> response = send("GET", "/actuator/health");
@@ -69,14 +94,14 @@ class ApiBaseIntegrationTest {
 
     @Test
     void listaCategoriasComCriterios() throws Exception {
-        HttpResponse<String> response = send("GET", "/api/v1/categories");
+        HttpResponse<String> response = read("/api/v1/categories");
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"slug\":\"mouse\"", "Ergonomia", "Latência");
     }
 
     @Test
     void categoriaInexistenteDevolve404ComProblemDetail() throws Exception {
-        HttpResponse<String> response = send("GET", "/api/v1/categories/nao-existe");
+        HttpResponse<String> response = read("/api/v1/categories/nao-existe");
         assertThat(response.statusCode()).isEqualTo(404);
         assertThat(response.headers().firstValue("content-type")).hasValue("application/problem+json");
     }
@@ -90,6 +115,17 @@ class ApiBaseIntegrationTest {
     }
 
     @Test
+    void semContaNenhumConteudoAbre() throws Exception {
+        for (String path : java.util.List.of("/api/v1/feed", "/api/v1/products", "/api/v1/categories",
+                "/api/v1/users/pedrolm", "/api/v1/search?q=razer", "/api/v1/market/games",
+                "/api/v1/posts/00000000-0000-0000-0000-000000000000/comments", "/uploads/avatars/qualquer.png")) {
+            HttpResponse<String> response = send("GET", path);
+            assertThat(response.statusCode()).as(path).isEqualTo(401);
+            assertThat(response.body()).as(path).contains("Entre na sua conta para continuar.");
+        }
+    }
+
+    @Test
     void rotaNaoLiberadaEBloqueada() throws Exception {
         assertThat(send("POST", "/api/v1/categories").statusCode()).isEqualTo(401);
         assertThat(send("GET", "/api/v1/qualquer-coisa").statusCode()).isEqualTo(401);
@@ -98,7 +134,7 @@ class ApiBaseIntegrationTest {
 
     @Test
     void categoriaTrazOsCamposDaFichaTecnicaEmOrdem() throws Exception {
-        HttpResponse<String> mouse = send("GET", "/api/v1/categories/mouse");
+        HttpResponse<String> mouse = read("/api/v1/categories/mouse");
         assertThat(mouse.statusCode()).isEqualTo(200);
         assertThat(mouse.body()).contains("\"specFields\"", "\"key\":\"polling_rate\"");
         assertThat(mouse.body()).doesNotContain("Razer", "placeholder");
@@ -117,7 +153,7 @@ class ApiBaseIntegrationTest {
     void fichaTecnicaSegueOsObrigatoriosDoCatalogo() throws Exception {
         assertThat(requiredFields("mouse")).containsExactlyInAnyOrder("modelo", "valor", "sensor", "dpi", "peso", "conexao");
         assertThat(requiredFields("teclado")).containsExactlyInAnyOrder("modelo", "valor", "formato", "tipo_switch", "conexao");
-        assertThat(send("GET", "/api/v1/categories/mouse").body())
+        assertThat(read("/api/v1/categories/mouse").body())
                 .contains("{\"key\":\"sensor\",\"label\":\"Tipo de sensor\",\"required\":true,\"options\":[\"Óptico\",\"Laser\"]}");
     }
 
@@ -137,7 +173,7 @@ class ApiBaseIntegrationTest {
     @Test
     void seedCarregaOsDadosDeExemplo() {
         Map<String, Object> totals = jdbc.queryForMap("""
-                SELECT (SELECT count(*) FROM users) AS users,
+                SELECT (SELECT count(*) FROM users WHERE email_hash IS NULL) AS users,
                        (SELECT count(*) FROM products) AS products,
                        (SELECT count(*) FROM reviews) AS reviews,
                        (SELECT count(*) FROM review_scores) AS scores

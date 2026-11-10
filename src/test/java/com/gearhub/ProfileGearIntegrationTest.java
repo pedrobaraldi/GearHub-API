@@ -72,6 +72,16 @@ class ProfileGearIntegrationTest {
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private Map<String, String> viewer;
+
+    // Todo o conteúdo exige conta: quem só olha também entra com uma sessão
+    private Map<String, String> viewer() throws Exception {
+        if (viewer == null) {
+            viewer = newPerson().auth();
+        }
+        return viewer;
+    }
+
     private Person newPerson() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         HttpResponse<String> response = call("POST", "/api/v1/auth/register", """
@@ -88,7 +98,7 @@ class ProfileGearIntegrationTest {
                 {"website":"https://gearhub.gg","twitter":"@pedro_lm","instagram":"pedro.lm","youtube":"https://youtube.com/@canal"}
                 """, person.auth());
         assertThat(saved.statusCode()).isEqualTo(200);
-        assertThat(call("GET", "/api/v1/users/" + person.username(), null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username(), null, viewer()).body())
                 .contains("\"website\":\"https://gearhub.gg\"", "\"twitter\":\"pedro_lm\"", "\"instagram\":\"pedro.lm\"");
 
         HttpResponse<String> script = call("PATCH", "/api/v1/users/me", "{\"website\":\"javascript:alert(1)\"}", person.auth());
@@ -111,7 +121,7 @@ class ProfileGearIntegrationTest {
         String next = "n" + person.username().substring(1);
         assertThat(call("PATCH", "/api/v1/users/me", "{\"username\":\"" + next + "\"}", person.auth()).body())
                 .contains("\"username\":\"" + next + "\"");
-        assertThat(call("GET", "/api/v1/users/" + person.username(), null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/users/" + person.username(), null, viewer()).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -123,7 +133,7 @@ class ProfileGearIntegrationTest {
 
         assertThat(call("GET", "/api/v1/me/setup", null, person.auth()).body())
                 .contains("\"key\":\"placa_mae\",\"label\":\"Placa-mãe\",\"section\":\"hardware\",\"value\":null");
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/setup", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/setup", null, viewer()).body())
                 .contains("Viper V3", "RTX").doesNotContain("placa_mae");
 
         HttpResponse<String> unknown = call("PUT", "/api/v1/me/setup", "{\"cadeira\":\"x\"}", person.auth());
@@ -138,7 +148,7 @@ class ProfileGearIntegrationTest {
                 .mapToObj(i -> "\"/uploads/content/" + java.util.UUID.randomUUID() + ".jpg\"")
                 .collect(java.util.stream.Collectors.joining(","));
         assertThat(call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[" + own + "]}", person.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/setup/photos", null, Map.of()).body().split(",")).hasSize(12);
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/setup/photos", null, viewer()).body().split(",")).hasSize(12);
 
         HttpResponse<String> many = call("PUT", "/api/v1/me/setup/photos",
                 "{\"photos\":[" + own + ",\"/uploads/content/" + java.util.UUID.randomUUID() + ".jpg\"]}", person.auth());
@@ -163,7 +173,7 @@ class ProfileGearIntegrationTest {
         assertThat(fourth.statusCode()).isEqualTo(409);
         assertThat(fourth.body()).contains("Você pode cadastrar até 3 jogos");
 
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, viewer()).body())
                 .contains("\"label\":\"eDPI\",\"value\":\"280\"", "\"name\":\"Valorant\"", "\"label\":\"Keybinds\"", "L-Shift");
 
         assertThat(call("DELETE", "/api/v1/me/games/cs2", null, person.auth()).statusCode()).isEqualTo(204);
@@ -173,16 +183,16 @@ class ProfileGearIntegrationTest {
     @Test
     void cadaJogoTemSeusCamposEValidaOsValores() throws Exception {
         Person person = newPerson();
-        assertThat(call("GET", "/api/v1/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/games", null, viewer()).body())
                 .contains("Rainbow Six Siege", "Tactical Shooter").doesNotContain("dota-2", "warzone");
-        assertThat(call("GET", "/api/v1/games/cs2", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/games/cs2", null, viewer()).body())
                 .contains("Crosshair", "Viewmodel", "Advanced Video", "Boost Player Contrast", "\"kind\":\"choice\"");
-        assertThat(call("GET", "/api/v1/games/fortnite", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/games/fortnite", null, viewer()).body())
                 .contains("3D Resolution").doesNotContain("Crosshair", "Viewmodel");
-        assertThat(call("GET", "/api/v1/games/valorant", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/games/valorant", null, viewer()).body())
                 .contains("Keybinds", "Equip Spike").doesNotContain("Video Settings");
 
-        assertThat(call("GET", "/api/v1/games/dota-2", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/games/dota-2", null, viewer()).statusCode()).isEqualTo(404);
         assertThat(call("PUT", "/api/v1/me/games/dota-2", "{}", person.auth()).statusCode()).isEqualTo(404);
         assertThat(call("PUT", "/api/v1/me/games/inexistente", "{}", person.auth()).statusCode()).isEqualTo(404);
 
@@ -194,7 +204,7 @@ class ProfileGearIntegrationTest {
                 .contains("Campo inválido para este jogo");
         assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"settings\":{\"edpi\":\"9\",\"dpi\":\"400\"}}", person.auth()).statusCode())
                 .isEqualTo(204);
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, viewer()).body())
                 .doesNotContain("\"edpi\":\"9\"");
     }
 
@@ -211,12 +221,12 @@ class ProfileGearIntegrationTest {
                 .contains("Categoria inválida");
 
         assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mouse\":{\"productId\":\"" + mouse + "\"}}}", person.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, viewer()).body())
                 .contains("\"slug\":\"razer-viper-v3-pro\"", "\"categoryName\":\"Mouse\"");
 
         // Salvar sem o equipamento tira a escolha anterior
         assertThat(call("PUT", "/api/v1/me/games/cs2", "{}", person.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, viewer()).body())
                 .doesNotContain("razer-viper-v3-pro");
         assertThat(call("DELETE", "/api/v1/me/games/cs2", null, person.auth()).statusCode()).isEqualTo(204);
     }
@@ -234,20 +244,20 @@ class ProfileGearIntegrationTest {
         assertThat(call("PUT", "/api/v1/reviews/" + top + "/like", null, person.auth()).statusCode()).isEqualTo(200);
         String other = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'artisan-zero-xsoft'", String.class);
 
-        HttpResponse<String> options = call("GET", "/api/v1/gear-options?category=mouse", null, Map.of());
+        HttpResponse<String> options = call("GET", "/api/v1/gear-options?category=mouse", null, viewer());
         assertThat(options.statusCode()).isEqualTo(200);
         assertThat(options.body().indexOf("\"reviewId\":\"" + top)).isBetween(0, 300);
         java.util.List<Integer> likes = java.util.regex.Pattern.compile("\"likeCount\":(\\d+)").matcher(options.body()).results()
                 .map(match -> Integer.valueOf(match.group(1))).toList();
         assertThat(likes).isSortedAccordingTo(java.util.Comparator.reverseOrder());
 
-        assertThat(call("GET", "/api/v1/gear-options?category=mouse&q=viper", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/gear-options?category=mouse&q=viper", null, viewer()).body())
                 .contains("Viper V3 Pro").doesNotContain("Maya X");
-        assertThat(call("GET", "/api/v1/gear-options?category=gpu", null, Map.of()).statusCode()).isEqualTo(400);
+        assertThat(call("GET", "/api/v1/gear-options?category=gpu", null, viewer()).statusCode()).isEqualTo(400);
 
         assertThat(call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mouse\":{\"productId\":\"" + product + "\",\"reviewId\":\"" + top + "\"}}}", person.auth()).statusCode())
                 .isEqualTo(204);
-        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/users/" + person.username() + "/games", null, viewer()).body())
                 .contains("\"reviewId\":\"" + top + "\"", "\"reviewAuthor\"");
 
         HttpResponse<String> wrong = call("PUT", "/api/v1/me/games/cs2", "{\"gear\":{\"mousepad\":{\"productId\":\"" + other + "\",\"reviewId\":\"" + top + "\"}}}", person.auth());
@@ -257,10 +267,10 @@ class ProfileGearIntegrationTest {
 
     @Test
     void produtoTemPaginaEReviewsProprias() throws Exception {
-        HttpResponse<String> product = call("GET", "/api/v1/products/razer-viper-v3-pro", null, Map.of());
+        HttpResponse<String> product = call("GET", "/api/v1/products/razer-viper-v3-pro", null, viewer());
         assertThat(product.statusCode()).isEqualTo(200);
         assertThat(product.body()).contains("Viper V3 Pro", "\"category\":\"Mouse\"", "\"label\":\"Sensor\",\"value\":9.8");
-        assertThat(call("GET", "/api/v1/products/inexistente", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/products/inexistente", null, viewer()).statusCode()).isEqualTo(404);
 
         // Mouse e mousepad são do mesmo grupo; teclado e headset não
         String pad = jdbc.queryForObject("SELECT id::text FROM products WHERE slug = 'artisan-zero-xsoft'", String.class);
@@ -269,10 +279,10 @@ class ProfileGearIntegrationTest {
                  "specs":{"modelo":"Zero","valor":"R$ 400","dimensoes":"49x42","superficie":"Control","material":"Tecido"}}
                 """.formatted(pad), newPerson().auth()).statusCode()).isEqualTo(201);
 
-        String feed = call("GET", "/api/v1/feed?product=razer-viper-v3-pro&size=50", null, Map.of()).body();
+        String feed = call("GET", "/api/v1/feed?product=razer-viper-v3-pro&size=50", null, viewer()).body();
         assertThat(feed).contains("Viper V3 Pro", "Maya X", "Review do mousepad")
                 .doesNotContain("\"kind\":\"post\"", "Wooting 80HE", "Maxwell");
-        assertThat(call("GET", "/api/v1/feed?product=wooting-wooting-80he&size=50", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/feed?product=wooting-wooting-80he&size=50", null, viewer()).body())
                 .contains("Wooting 80HE").doesNotContain("Viper V3 Pro", "Review do mousepad");
     }
 
@@ -282,12 +292,12 @@ class ProfileGearIntegrationTest {
         String marker = "marcador" + person.username();
         assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Texto com " + marker + "\"}", person.auth()).statusCode()).isEqualTo(201);
 
-        assertThat(call("GET", "/api/v1/feed?q=" + marker, null, Map.of()).body()).contains(marker);
-        assertThat(call("GET", "/api/v1/feed?q=viper%20v3", null, Map.of()).body()).contains("Viper V3 Pro").doesNotContain(marker);
-        assertThat(call("GET", "/api/v1/feed?q=Pedro", null, Map.of()).body()).contains("\"username\":\"pedrolm\"");
-        assertThat(call("GET", "/api/v1/feed?q=" + java.util.UUID.randomUUID(), null, Map.of()).body()).contains("\"items\":[]");
+        assertThat(call("GET", "/api/v1/feed?q=" + marker, null, viewer()).body()).contains(marker);
+        assertThat(call("GET", "/api/v1/feed?q=viper%20v3", null, viewer()).body()).contains("Viper V3 Pro").doesNotContain(marker);
+        assertThat(call("GET", "/api/v1/feed?q=Pedro", null, viewer()).body()).contains("\"username\":\"pedrolm\"");
+        assertThat(call("GET", "/api/v1/feed?q=" + java.util.UUID.randomUUID(), null, viewer()).body()).contains("\"items\":[]");
         // % digitado é texto, não curinga
-        assertThat(call("GET", "/api/v1/feed?q=%25", null, Map.of()).body()).doesNotContain(marker);
+        assertThat(call("GET", "/api/v1/feed?q=%25", null, viewer()).body()).doesNotContain(marker);
     }
 
     @Test
@@ -296,7 +306,7 @@ class ProfileGearIntegrationTest {
         String photo = "/uploads/content/" + java.util.UUID.randomUUID() + ".jpg";
         assertThat(call("PUT", "/api/v1/me/setup/photos", "{\"photos\":[\"" + photo + "\"]}", person.auth()).statusCode()).isEqualTo(204);
 
-        HttpResponse<String> hall = call("GET", "/api/v1/hall", null, Map.of());
+        HttpResponse<String> hall = call("GET", "/api/v1/hall", null, viewer());
         assertThat(hall.statusCode()).isEqualTo(200);
         assertThat(hall.body()).contains("\"reviewers\"", "\"reviewCount\"", "\"rankName\"", "\"level\"", "\"photo\":\"" + photo + "\"", "\"avgScore\"")
                 .doesNotContain("\"avgScore\":null");
@@ -304,7 +314,7 @@ class ProfileGearIntegrationTest {
 
     @Test
     void catalogoTemTodasAsCategoriasComCamposObrigatorios() throws Exception {
-        String categories = call("GET", "/api/v1/categories", null, Map.of()).body();
+        String categories = call("GET", "/api/v1/categories", null, viewer()).body();
         assertThat(categories).contains("Placa-mãe", "Memória RAM", "Water Cooler", "Fone intra", "\"key\":\"valor\"", "\"IPS\"");
         assertThat(jdbc.queryForObject("""
                 SELECT count(DISTINCT category_id) FROM spec_fields WHERE key IN ('modelo', 'valor') AND required
@@ -317,20 +327,20 @@ class ProfileGearIntegrationTest {
         String marker = "palavra" + person.username();
         assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Texto com " + marker + "\"}", person.auth()).statusCode()).isEqualTo(201);
 
-        assertThat(call("GET", "/api/v1/search?q=" + marker, null, Map.of()).body()).contains("\"kind\":\"post\"", marker);
-        assertThat(call("GET", "/api/v1/search?q=viper", null, Map.of()).body()).contains("razer-viper-v3-pro");
-        assertThat(call("GET", "/api/v1/search?q=" + person.username(), null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/search?q=" + marker, null, viewer()).body()).contains("\"kind\":\"post\"", marker);
+        assertThat(call("GET", "/api/v1/search?q=viper", null, viewer()).body()).contains("razer-viper-v3-pro");
+        assertThat(call("GET", "/api/v1/search?q=" + person.username(), null, viewer()).body())
                 .contains("\"people\":[{\"username\":\"" + person.username() + "\"");
-        assertThat(call("GET", "/api/v1/search?q=%25%25", null, Map.of()).body())
+        assertThat(call("GET", "/api/v1/search?q=%25%25", null, viewer()).body())
                 .contains("\"products\":[]", "\"people\":[]");
 
-        HttpResponse<String> shortTerm = call("GET", "/api/v1/search?q=a", null, Map.of());
+        HttpResponse<String> shortTerm = call("GET", "/api/v1/search?q=a", null, viewer());
         assertThat(shortTerm.statusCode()).isEqualTo(400);
         assertThat(shortTerm.body()).contains("Digite ao menos 2 caracteres");
     }
 
     @Test
-    void publicacaoSoAceitaAteQuatroImagensEnviadasAqui() throws Exception {
+    void publicacaoSoAceitaAteDezImagensEnviadasAqui() throws Exception {
         Person person = newPerson();
         String own = "/uploads/content/" + UUID.randomUUID() + ".png";
 
@@ -339,13 +349,13 @@ class ProfileGearIntegrationTest {
         assertThat(foreign.statusCode()).isEqualTo(400);
         assertThat(foreign.body()).contains("Imagem inválida");
 
-        String five = String.join(",", java.util.Collections.nCopies(5, "\"" + own + "\""));
-        HttpResponse<String> tooMany = call("POST", "/api/v1/posts", "{\"body\":\"Muitas\",\"images\":[" + five + "]}", person.auth());
+        String eleven = String.join(",", java.util.Collections.nCopies(11, "\"" + own + "\""));
+        HttpResponse<String> tooMany = call("POST", "/api/v1/posts", "{\"body\":\"Muitas\",\"images\":[" + eleven + "]}", person.auth());
         assertThat(tooMany.statusCode()).isEqualTo(400);
-        assertThat(tooMany.body()).contains("Envie no máximo 4 imagens");
+        assertThat(tooMany.body()).contains("Envie no máximo 10 imagens");
 
         assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Com imagem\",\"images\":[\"" + own + "\"]}", person.auth()).statusCode())
                 .isEqualTo(201);
-        assertThat(call("GET", "/api/v1/feed?size=1", null, Map.of()).body()).contains("\"images\":[\"" + own + "\"]");
+        assertThat(call("GET", "/api/v1/feed?size=1", null, viewer()).body()).contains("\"images\":[\"" + own + "\"]");
     }
 }

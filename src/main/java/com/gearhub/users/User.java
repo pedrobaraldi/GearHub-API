@@ -82,6 +82,10 @@ public class User {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    // Só leitura: a verificação em duas etapas é ligada e desligada pelo TwoFactorService
+    @Column(name = "two_factor_enabled_at", insertable = false, updatable = false)
+    private Instant twoFactorEnabledAt;
+
     protected User() {
     }
 
@@ -215,6 +219,10 @@ public class User {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isTwoFactorEnabled() {
+        return twoFactorEnabledAt != null;
     }
 
     public Instant getDeletedAt() {

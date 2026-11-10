@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,8 @@ public class MarketService {
             String currency, Integer initialCents, Integer finalCents, int discountPercent, Integer currentPlayers,
             @Schema(description = "Pico de jogadores nas últimas 24 horas") Integer peakPlayers24h,
             @Schema(description = "Porcentagem de avaliações positivas") Integer reviewPercent,
-            @Schema(description = "Menor preço já registrado pela nossa coleta") Integer lowestCents) {
+            @Schema(description = "Menor preço já registrado pela nossa coleta") Integer lowestCents,
+            @Schema(description = "Página do jogo no catálogo, quando já ligada", example = "valheim") String slug) {
     }
 
     @Schema(description = "Ficha completa de um jogo")
@@ -62,7 +64,8 @@ public class MarketService {
              WHERE p.steam_appid = g.steam_appid AND p.taken_at > now() - interval '24 hours') AS peak_24h,
             CASE WHEN coalesce(g.review_positive, 0) + coalesce(g.review_negative, 0) > 0
                  THEN round(100.0 * g.review_positive / (g.review_positive + g.review_negative))::integer END AS review_percent,
-            (SELECT min(s.final_cents) FROM market_price_snapshots s WHERE s.steam_appid = g.steam_appid) AS lowest_cents
+            (SELECT min(s.final_cents) FROM market_price_snapshots s WHERE s.steam_appid = g.steam_appid) AS lowest_cents,
+            g.igdb_slug
             """;
 
     private final JdbcClient jdbc;
@@ -80,6 +83,15 @@ public class MarketService {
                 .param("term", term)
                 .query((rs, row) -> summary(rs))
                 .list();
+    }
+
+    /** Resumo de um jogo acompanhado, para a página do jogo no catálogo. */
+    @Transactional(readOnly = true)
+    public Optional<GameSummary> summary(int appid) {
+        return jdbc.sql("SELECT " + SUMMARY_COLUMNS + " FROM market_games g WHERE g.steam_appid = :appid")
+                .param("appid", appid)
+                .query((rs, row) -> summary(rs))
+                .optional();
     }
 
     @Transactional(readOnly = true)
@@ -143,6 +155,7 @@ public class MarketService {
                 rs.getBoolean("is_free"), rs.getString("currency"), (Integer) rs.getObject("initial_cents"),
                 (Integer) rs.getObject("final_cents"), rs.getInt("discount_percent"),
                 (Integer) rs.getObject("current_players"), (Integer) rs.getObject("peak_24h"),
-                (Integer) rs.getObject("review_percent"), (Integer) rs.getObject("lowest_cents"));
+                (Integer) rs.getObject("review_percent"), (Integer) rs.getObject("lowest_cents"),
+                rs.getString("igdb_slug"));
     }
 }

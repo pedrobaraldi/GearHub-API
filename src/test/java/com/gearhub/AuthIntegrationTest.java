@@ -88,6 +88,16 @@ class AuthIntegrationTest {
         return response.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
     }
 
+    private Map<String, String> viewer;
+
+    // Todo o conteúdo exige conta: quem só olha também entra com uma sessão
+    private Map<String, String> viewer() throws Exception {
+        if (viewer == null) {
+            viewer = Map.of("Cookie", newAccount().cookie());
+        }
+        return viewer;
+    }
+
     private Account newAccount() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String username = "u" + id;
@@ -254,10 +264,10 @@ class AuthIntegrationTest {
     @Test
     void perfilPublicoNaoExpoeDadosPrivados() throws Exception {
         Account account = newAccount();
-        HttpResponse<String> profile = call("GET", "/api/v1/users/" + account.username(), null, Map.of());
+        HttpResponse<String> profile = call("GET", "/api/v1/users/" + account.username(), null, viewer());
         assertThat(profile.statusCode()).isEqualTo(200);
         assertThat(profile.body()).contains(account.username()).doesNotContain(account.email(), "\"email\"", "role");
-        assertThat(call("GET", "/api/v1/users/nao-existe", null, Map.of()).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/users/nao-existe", null, viewer()).statusCode()).isEqualTo(404);
     }
 
     @Test

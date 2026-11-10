@@ -1,0 +1,307 @@
+package com.gearhub;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.gearhub.catalog.CatalogService;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+/** Catálogo de jogos com um IGDB falso, que responde com a ficha real do Elden Ring. */
+@ActiveProfiles("dev")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {"gearhub.auth.register-limit-per-minute=1000", "gearhub.market.collect=false"})
+class CatalogIntegrationTest {
+
+    private static final String PASSWORD = "Senha-Forte-123";
+    private static final EmbeddedPostgres POSTGRES = startPostgres();
+    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final List<String> QUERIES = new CopyOnWriteArrayList<>();
+    private static final AtomicInteger TOKENS = new AtomicInteger();
+    private static volatile boolean igdbDown;
+    private static final HttpServer FAKE_IGDB = startFakeIgdb();
+
+    @Value("${local.server.port}")
+    private int port;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private CatalogService catalog;
+
+    private static EmbeddedPostgres startPostgres() {
+        try {
+            return EmbeddedPostgres.start();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String fixture() {
+        try (InputStream in = CatalogIntegrationTest.class.getResourceAsStream("/igdb/elden-ring.json")) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static HttpServer startFakeIgdb() {
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+            server.createContext("/token", exchange -> {
+                TOKENS.incrementAndGet();
+                reply(exchange, 200, "{\"access_token\":\"token-falso\",\"expires_in\":5000000,\"token_type\":\"bearer\"}");
+            });
+            server.createContext("/v4/", exchange -> {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                String path = exchange.getRequestURI().getPath();
+                QUERIES.add(path + " " + body);
+                if (igdbDown) {
+                    reply(exchange, 503, "{}");
+                    return;
+                }
+                if (!"Bearer token-falso".equals(exchange.getRequestHeaders().getFirst("Authorization"))
+                        || !"cliente-igdb".equals(exchange.getRequestHeaders().getFirst("Client-ID"))) {
+                    reply(exchange, 401, "{}");
+                    return;
+                }
+                switch (path) {
+                    case "/v4/games" -> {
+                        if (body.startsWith("search")) {
+                            reply(exchange, 200, """
+                                    [{"id":119133,"name":"Elden Ring","slug":"elden-ring","cover":{"id":1,"image_id":"co4jni"},
+                                      "first_release_date":1645747200,"platforms":[{"id":6,"abbreviation":"PC"},{"id":167,"abbreviation":"PS5"}],
+                                      "total_rating":95.19},
+                                     {"id":2,"name":"Sem slug válido","slug":"Inválido Com Espaço"}]
+                                    """);
+                        } else if (body.contains("where slug = \"elden-ring\"")) {
+                            reply(exchange, 200, fixture());
+                        } else {
+                            reply(exchange, 200, "[]");
+                        }
+                    }
+                    case "/v4/game_time_to_beats" -> reply(exchange, 200,
+                            "[{\"id\":2585,\"game_id\":119133,\"hastily\":166400,\"normally\":428000,\"completely\":628294,\"count\":27}]");
+                    case "/v4/external_games" -> reply(exchange, 200,
+                            "[{\"id\":1,\"uid\":\"1245620\",\"game\":{\"id\":119133,\"slug\":\"elden-ring\"}}]");
+                    default -> reply(exchange, 404, "[]");
+                }
+            });
+            server.start();
+            return server;
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void reply(HttpExchange exchange, int status, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, bytes.length);
+        exchange.getResponseBody().write(bytes);
+        exchange.close();
+    }
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () -> POSTGRES.getJdbcUrl("postgres", "postgres"));
+        registry.add("spring.datasource.username", () -> "postgres");
+        registry.add("spring.datasource.password", () -> "postgres");
+        String igdb = "http://localhost:" + FAKE_IGDB.getAddress().getPort();
+        registry.add("gearhub.igdb.client-id", () -> "cliente-igdb");
+        registry.add("gearhub.igdb.client-secret", () -> "segredo-igdb");
+        registry.add("gearhub.igdb.token-uri", () -> igdb + "/token");
+        registry.add("gearhub.igdb.api-uri", () -> igdb + "/v4");
+    }
+
+    @AfterAll
+    static void stop() throws IOException {
+        FAKE_IGDB.stop(0);
+        POSTGRES.close();
+    }
+
+    @BeforeEach
+    void reset() {
+        igdbDown = false;
+        jdbc.update("DELETE FROM catalog_games");
+        jdbc.update("UPDATE market_games SET igdb_slug = NULL");
+        QUERIES.clear();
+    }
+
+    private Map<String, String> session() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        HttpResponse<String> created = call("/api/v1/auth/register", """
+                {"displayName":"Gamer","username":"g%s","email":"%s@exemplo.com","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(id, id, PASSWORD, PASSWORD), Map.of());
+        assertThat(created.statusCode()).isEqualTo(201);
+        return Map.of("Cookie", created.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+    }
+
+    private HttpResponse<String> call(String path, String json, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
+        if (json == null) {
+            request.GET();
+        } else {
+            request.POST(HttpRequest.BodyPublishers.ofString(json)).header("Content-Type", "application/json");
+        }
+        headers.forEach(request::header);
+        return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private long gameQueries() {
+        return QUERIES.stream().filter(query -> query.startsWith("/v4/games ")).count();
+    }
+
+    @Test
+    void semContaNadaAbre() throws Exception {
+        assertThat(call("/api/v1/catalog/games?q=elden", null, Map.of()).statusCode()).isEqualTo(401);
+        assertThat(call("/api/v1/catalog/games/elden-ring", null, Map.of()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void buscaTrazCardsSoDeJogosJogaveis() throws Exception {
+        Map<String, String> auth = session();
+        HttpResponse<String> found = call("/api/v1/catalog/games?q=elden%20ring", null, auth);
+        assertThat(found.statusCode()).isEqualTo(200);
+        assertThat(found.body()).isEqualTo("[{\"slug\":\"elden-ring\",\"name\":\"Elden Ring\","
+                + "\"coverUrl\":\"https://images.igdb.com/igdb/image/upload/t_cover_big/co4jni.jpg\","
+                + "\"year\":2022,\"platforms\":[\"PC\",\"PS5\"],\"rating\":95}]");
+        assertThat(QUERIES.getFirst()).contains("search \"elden ring\";", "game_type = (0,4,8,9,10,11)", "version_parent = null");
+
+        // Mesma busca de novo: sai do cache, sem outra chamada ao IGDB
+        call("/api/v1/catalog/games?q=Elden%20Ring", null, auth);
+        assertThat(gameQueries()).isEqualTo(1);
+
+        assertThat(call("/api/v1/catalog/games?q=e", null, auth).statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void buscaNaoDeixaMudarAConsulta() throws Exception {
+        Map<String, String> auth = session();
+        call("/api/v1/catalog/games?q=" + java.net.URLEncoder.encode("x\"; fields *; where id = 1;", StandardCharsets.UTF_8),
+                null, auth);
+        assertThat(QUERIES.getFirst()).startsWith("/v4/games search \"x  fields * where id = 1 \";".replace("  ", " "));
+    }
+
+    @Test
+    void paginaDoJogoMontaAFichaCompleta() throws Exception {
+        HttpResponse<String> page = call("/api/v1/catalog/games/elden-ring", null, session());
+        assertThat(page.statusCode()).isEqualTo(200);
+        assertThat(page.body()).contains(
+                "\"name\":\"Elden Ring\"", "\"type\":\"Main Game\"", "\"releaseDate\":\"2022-02-25\"",
+                "\"coverUrl\":\"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/co4jni.jpg\"",
+                "\"artworkUrl\":\"https://images.igdb.com/igdb/image/upload/t_1080p/",
+                "\"ratings\":{\"critics\":97,\"criticsCount\":10,\"users\":93,\"usersCount\":2337,\"total\":95}",
+                "\"timeToBeat\":{\"main\":46,\"extras\":119,\"completionist\":175,\"count\":27}",
+                "\"genres\":[\"Role-playing (RPG)\",\"Adventure\"]",
+                "\"developers\":[\"FromSoftware\"]", "\"publishers\":[\"Bandai Namco Entertainment\",\"FromSoftware\"]",
+                "\"portuguese\":{\"audio\":false,\"subtitles\":true,\"interfaceText\":true}",
+                "\"multiplayer\":{\"onlineMax\":3,\"offlineMax\":1,\"onlineCoop\":true,\"offlineCoop\":false,\"campaignCoop\":true",
+                "\"ageRating\":\"16\"", "\"steamAppid\":1245620",
+                "{\"label\":\"Steam\",\"url\":\"https://store.steampowered.com/app/1245620",
+                "\"youtubeId\":\"D1mDo1CEMuE\"",
+                "\"expansions\":[{\"slug\":\"elden-ring-shadow-of-the-erdtree\"",
+                "\"similar\":[{\"slug\":\"dark-souls\"");
+        // Elden Ring não é acompanhado na aba Games: sem bloco da Steam
+        assertThat(page.body()).endsWith("\"steam\":null}");
+        assertThat(QUERIES).anyMatch(query -> query.startsWith("/v4/game_time_to_beats") && query.contains("game_id = 119133"));
+    }
+
+    @Test
+    void fichaFicaGuardadaEServeSeOIgdbCair() throws Exception {
+        Map<String, String> auth = session();
+        call("/api/v1/catalog/games/elden-ring", null, auth);
+        call("/api/v1/catalog/games/elden-ring", null, auth);
+        assertThat(gameQueries()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT steam_appid FROM catalog_games WHERE slug = 'elden-ring'", Integer.class))
+                .isEqualTo(1245620);
+
+        // Cópia vencida e IGDB fora do ar: mostra a última versão em vez de erro
+        jdbc.update("UPDATE catalog_games SET synced_at = now() - interval '10 days'");
+        igdbDown = true;
+        HttpResponse<String> stale = call("/api/v1/catalog/games/elden-ring", null, auth);
+        assertThat(stale.statusCode()).isEqualTo(200);
+        assertThat(stale.body()).contains("\"name\":\"Elden Ring\"");
+
+        // Nunca guardado e IGDB fora: 503
+        assertThat(call("/api/v1/catalog/games/hollow-knight", null, auth).statusCode()).isEqualTo(503);
+    }
+
+    @Test
+    void jogoInexistenteOuSlugEstranhoDa404() throws Exception {
+        Map<String, String> auth = session();
+        assertThat(call("/api/v1/catalog/games/nao-existe", null, auth).statusCode()).isEqualTo(404);
+        int before = QUERIES.size();
+        assertThat(call("/api/v1/catalog/games/Slug%22;%20fields", null, auth).statusCode()).isEqualTo(404);
+        assertThat(QUERIES).hasSize(before);
+    }
+
+    @Test
+    void jogoAcompanhadoNaSteamTrazPrecoEJogadores() throws Exception {
+        jdbc.update("""
+                INSERT INTO market_games (steam_appid, name, currency, initial_cents, final_cents, discount_percent, current_players)
+                VALUES (1245620, 'ELDEN RING', 'BRL', 22990, 11495, 50, 40000) ON CONFLICT (steam_appid) DO NOTHING
+                """);
+        try {
+            HttpResponse<String> page = call("/api/v1/catalog/games/elden-ring", null, session());
+            assertThat(page.body()).contains("\"steam\":{\"appid\":1245620", "\"finalCents\":11495", "\"discountPercent\":50",
+                    "\"currentPlayers\":40000", "\"slug\":\"elden-ring\"");
+        } finally {
+            jdbc.update("DELETE FROM market_games WHERE steam_appid = 1245620");
+        }
+    }
+
+    @Test
+    void ligaOsJogosDaSteamAoCatalogo() throws Exception {
+        jdbc.update("INSERT INTO market_games (steam_appid, name) VALUES (1245620, 'ELDEN RING') ON CONFLICT (steam_appid) DO NOTHING");
+        try {
+            assertThat(catalog.linkMarketGames()).isEqualTo(1);
+            assertThat(QUERIES).anyMatch(query -> query.startsWith("/v4/external_games")
+                    && query.contains("external_game_source = 1") && query.contains("\"1245620\""));
+
+            Map<String, String> auth = session();
+            assertThat(call("/api/v1/market/games?q=elden", null, auth).body()).contains("\"slug\":\"elden-ring\"");
+            // Endereço antigo da aba Games encontra a página nova
+            assertThat(call("/api/v1/catalog/steam/1245620", null, auth).body()).isEqualTo("{\"slug\":\"elden-ring\"}");
+            assertThat(call("/api/v1/catalog/steam/999999", null, auth).statusCode()).isEqualTo(404);
+        } finally {
+            jdbc.update("DELETE FROM market_games WHERE steam_appid = 1245620");
+        }
+    }
+
+    @Test
+    void tokenEReaproveitado() throws Exception {
+        Map<String, String> auth = session();
+        int before = TOKENS.get();
+        call("/api/v1/catalog/games?q=zelda", null, auth);
+        call("/api/v1/catalog/games?q=mario", null, auth);
+        call("/api/v1/catalog/games/elden-ring", null, auth);
+        // No máximo um token novo (se nenhum teste anterior pediu), nunca um por chamada
+        assertThat(TOKENS.get() - before).isLessThanOrEqualTo(1);
+        assertThat(TOKENS.get()).isGreaterThanOrEqualTo(1);
+    }
+}

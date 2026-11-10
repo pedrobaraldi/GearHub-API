@@ -58,13 +58,16 @@ public final class UserResponses {
             int level,
             boolean pro,
             Instant createdAt,
-            @Schema(description = "Contorno escolhido para a foto; nulo é automático") String ringStyle) {
+            @Schema(description = "Contorno escolhido para a foto; nulo é automático") String ringStyle,
+            @Schema(description = "Verificação em duas etapas ativa") boolean twoFactorEnabled,
+            @Schema(description = "Tem senha própria. Falso para quem só entra com Google ou Discord") boolean hasPassword) {
 
         public static Me from(User user) {
             return new Me(user.getUsername(), user.getDisplayName(), user.getBio(), user.getAvatarUrl(),
                     user.getBannerUrl(), user.getWebsite(), user.getTwitter(), user.getInstagram(), user.getYoutube(),
                     user.getEmail(), user.getEmailVerifiedAt() != null, user.getRole(), user.getRankName(),
-                    user.getLevel(), user.isPro(), user.getCreatedAt(), user.getRingStyle());
+                    user.getLevel(), user.isPro(), user.getCreatedAt(), user.getRingStyle(),
+                    user.isTwoFactorEnabled(), user.getPasswordHash() != null);
         }
     }
 }

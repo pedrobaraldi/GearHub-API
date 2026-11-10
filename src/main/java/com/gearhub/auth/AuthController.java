@@ -38,6 +38,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthController {
 
     private static final String STATE_COOKIE = "gearhub_oauth_state";
+    // Login em espera do código de 2FA: só a rota de verificação recebe esse cookie
+    private static final String CHALLENGE_COOKIE = "gearhub_2fa";
+    private static final String CHALLENGE_PATH = "/api/v1/auth/2fa";
 
     /** Mensagens do login social: o site recebe só o código e pede o texto aqui. */
     private static final Map<String, String> LOGIN_ERRORS = Map.of(
@@ -52,17 +55,19 @@ public class AuthController {
     private final GoogleAuthService google;
     private final DiscordAuthService discord;
     private final PasswordResetService passwordReset;
+    private final TwoFactorService twoFactor;
     private final GoogleProperties googleProperties;
     private final CryptoService crypto;
     private final AuthProperties properties;
 
     public AuthController(AuthService auth, GoogleAuthService google, DiscordAuthService discord,
-            PasswordResetService passwordReset, GoogleProperties googleProperties, CryptoService crypto,
-            AuthProperties properties) {
+            PasswordResetService passwordReset, TwoFactorService twoFactor, GoogleProperties googleProperties,
+            CryptoService crypto, AuthProperties properties) {
         this.auth = auth;
         this.google = google;
         this.discord = discord;
         this.passwordReset = passwordReset;
+        this.twoFactor = twoFactor;
         this.googleProperties = googleProperties;
         this.crypto = crypto;
         this.properties = properties;
@@ -118,7 +123,7 @@ public class AuthController {
         if (error != null) {
             return redirectWithError("google-cancelado");
         }
-        if (code == null || !sameState(state, stateCookie(request))) {
+        if (code == null || !sameState(state, cookie(request, STATE_COOKIE))) {
             return redirectWithError(GoogleAuthService.ERROR_FAILED);
         }
         return finishLogin(() -> google.authenticate(code), request);
@@ -134,7 +139,7 @@ public class AuthController {
         if (error != null) {
             return redirectWithError("discord-cancelado");
         }
-        if (code == null || !sameState(state, stateCookie(request))) {
+        if (code == null || !sameState(state, cookie(request, STATE_COOKIE))) {
             return redirectWithError(DiscordAuthService.ERROR_FAILED);
         }
         return finishLogin(() -> discord.authenticate(code), request);
@@ -142,11 +147,18 @@ public class AuthController {
 
     private ResponseEntity<Void> finishLogin(Supplier<User> authenticate, HttpServletRequest request) {
         try {
-            String token = auth.openOAuthSession(authenticate.get(), request.getRemoteAddr(),
+            AuthService.AuthResult result = auth.start(authenticate.get(), request.getRemoteAddr(),
                     request.getHeader("User-Agent"));
+            if (result.needsCode()) {
+                return ResponseEntity.status(HttpStatus.FOUND)
+                        .location(URI.create(googleProperties.siteUrl() + "/auth?etapa=codigo"))
+                        .header(HttpHeaders.SET_COOKIE, challengeCookie(result.challengeToken(),
+                                TwoFactorService.CHALLENGE_TTL).toString())
+                        .build();
+            }
             return ResponseEntity.status(HttpStatus.FOUND)
                     .location(URI.create(googleProperties.siteUrl() + "/"))
-                    .header(HttpHeaders.SET_COOKIE, sessionCookie(token, properties.sessionTtl()).toString())
+                    .header(HttpHeaders.SET_COOKIE, sessionCookie(result.sessionToken(), properties.sessionTtl()).toString())
                     .build();
         } catch (OAuthLoginException e) {
             return redirectWithError(e.code());
@@ -169,10 +181,10 @@ public class AuthController {
                 .build();
     }
 
-    private static String stateCookie(HttpServletRequest request) {
+    private static String cookie(HttpServletRequest request, String name) {
         if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
-                if (STATE_COOKIE.equals(cookie.getName())) {
+                if (name.equals(cookie.getName())) {
                     return cookie.getValue();
                 }
             }
@@ -195,21 +207,45 @@ public class AuthController {
             @Valid @RequestBody AuthRequests.Register body, HttpServletRequest request) {
         AuthService.AuthResult result = auth.register(body, request.getRemoteAddr(), request.getHeader("User-Agent"));
         return ResponseEntity.status(HttpStatus.CREATED)
-                .header(HttpHeaders.SET_COOKIE, sessionCookie(result.token(), properties.sessionTtl()).toString())
+                .header(HttpHeaders.SET_COOKIE, sessionCookie(result.sessionToken(), properties.sessionTtl()).toString())
                 .body(UserResponses.Me.from(result.user()));
     }
 
     @PostMapping("/login")
-    @Operation(summary = "Entra com e-mail e senha")
-    @ApiResponse(responseCode = "200", description = "Sessão iniciada")
+    @Operation(summary = "Entra com e-mail e senha",
+            description = "Numa conta com verificação em duas etapas, responde {\"twoFactorRequired\": true} sem sessão: "
+                    + "o código vai para /api/v1/auth/2fa/verify")
+    @ApiResponse(responseCode = "200", description = "Sessão iniciada, ou código de 2FA pedido")
     @ApiResponse(responseCode = "401", description = "E-mail ou senha incorretos")
     @ApiResponse(responseCode = "429", description = "Muitas tentativas")
-    public ResponseEntity<UserResponses.Me> login(
+    public ResponseEntity<Object> login(
             @Valid @RequestBody AuthRequests.Login body, HttpServletRequest request) {
         AuthService.AuthResult result = auth.login(body, request.getRemoteAddr(), request.getHeader("User-Agent"));
+        if (result.needsCode()) {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, challengeCookie(result.challengeToken(),
+                            TwoFactorService.CHALLENGE_TTL).toString())
+                    .body(Map.of("twoFactorRequired", true));
+        }
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, sessionCookie(result.token(), properties.sessionTtl()).toString())
+                .header(HttpHeaders.SET_COOKIE, sessionCookie(result.sessionToken(), properties.sessionTtl()).toString())
                 .body(UserResponses.Me.from(result.user()));
+    }
+
+    @PostMapping("/2fa/verify")
+    @Operation(summary = "Conclui o login com o código do app autenticador ou um código de recuperação")
+    @ApiResponse(responseCode = "200", description = "Sessão iniciada")
+    @ApiResponse(responseCode = "400", description = "Código inválido")
+    @ApiResponse(responseCode = "401", description = "Verificação expirada ou tentativas esgotadas: entrar de novo")
+    @ApiResponse(responseCode = "429", description = "Muitas tentativas")
+    public ResponseEntity<UserResponses.Me> verifyTwoFactor(
+            @Valid @RequestBody TwoFactorRequests.Code body, HttpServletRequest request) {
+        User user = twoFactor.completeChallenge(cookie(request, CHALLENGE_COOKIE), body.code(), request.getRemoteAddr());
+        String token = auth.openSession(user, request.getRemoteAddr(), request.getHeader("User-Agent"));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, sessionCookie(token, properties.sessionTtl()).toString())
+                .header(HttpHeaders.SET_COOKIE, challengeCookie("", Duration.ZERO).toString())
+                .body(UserResponses.Me.from(user));
     }
 
     @PostMapping("/logout")
@@ -227,6 +263,16 @@ public class AuthController {
     @ApiResponse(responseCode = "401", description = "Sem sessão válida")
     public UserResponses.Me me(@AuthenticationPrincipal CurrentUser current) {
         return UserResponses.Me.from(auth.currentUser(current.id()));
+    }
+
+    private ResponseCookie challengeCookie(String value, Duration maxAge) {
+        return ResponseCookie.from(CHALLENGE_COOKIE, value)
+                .httpOnly(true)
+                .secure(properties.secureCookie())
+                .sameSite("Lax")
+                .path(CHALLENGE_PATH)
+                .maxAge(maxAge)
+                .build();
     }
 
     private ResponseCookie sessionCookie(String value, Duration maxAge) {

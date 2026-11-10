@@ -1,0 +1,1187 @@
+[
+ {
+  "id": 119133,
+  "age_ratings": [
+   {
+    "id": 57167,
+    "organization": {
+     "id": 4,
+     "name": "USK"
+    },
+    "rating_category": {
+     "id": 21,
+     "rating": "16"
+    }
+   },
+   {
+    "id": 57169,
+    "organization": {
+     "id": 6,
+     "name": "CLASS_IND"
+    },
+    "rating_category": {
+     "id": 32,
+     "rating": "16"
+    }
+   },
+   {
+    "id": 213790,
+    "organization": {
+     "id": 1,
+     "name": "ESRB"
+    },
+    "rating_category": {
+     "id": 6,
+     "rating": "M"
+    }
+   },
+   {
+    "id": 57164,
+    "organization": {
+     "id": 2,
+     "name": "PEGI"
+    },
+    "rating_category": {
+     "id": 11,
+     "rating": "16"
+    }
+   },
+   {
+    "id": 57168,
+    "organization": {
+     "id": 5,
+     "name": "GRAC"
+    },
+    "rating_category": {
+     "id": 26,
+     "rating": "19+"
+    }
+   },
+   {
+    "id": 57165,
+    "organization": {
+     "id": 3,
+     "name": "CERO"
+    },
+    "rating_category": {
+     "id": 16,
+     "rating": "D"
+    }
+   },
+   {
+    "id": 57170,
+    "organization": {
+     "id": 7,
+     "name": "ACB"
+    },
+    "rating_category": {
+     "id": 37,
+     "rating": "MA 15+"
+    }
+   }
+  ],
+  "aggregated_rating": 96.9,
+  "aggregated_rating_count": 10,
+  "artworks": [
+   {
+    "id": 168540,
+    "image_id": "ar3m1o"
+   },
+   {
+    "id": 168541,
+    "image_id": "ar3m1p"
+   },
+   {
+    "id": 52129,
+    "image_id": "ar1481"
+   },
+   {
+    "id": 168539,
+    "image_id": "ar3m1n"
+   }
+  ],
+  "cover": {
+   "id": 212094,
+   "image_id": "co4jni"
+  },
+  "dlcs": [
+   {
+    "id": 415376,
+    "cover": {
+     "id": 596246,
+     "image_id": "cocs2e"
+    },
+    "name": "Elden Ring: Tarnished Pack",
+    "slug": "elden-ring-tarnished-pack--1"
+   }
+  ],
+  "expansions": [
+   {
+    "id": 240009,
+    "name": "Elden Ring: Shadow of the Erdtree",
+    "slug": "elden-ring-shadow-of-the-erdtree"
+   }
+  ],
+  "external_games": [
+   {
+    "id": 3190333,
+    "uid": "B09MG5LQ18",
+    "external_game_source": 20
+   },
+   {
+    "id": 2062011,
+    "uid": "B09743F8P6",
+    "url": "https://amazon.com/dp/B09743F8P6",
+    "external_game_source": 20
+   },
+   {
+    "id": 2063046,
+    "uid": "B0977MY2WM",
+    "url": "https://amazon.fr/dp/B0977MY2WM",
+    "external_game_source": 20
+   },
+   {
+    "id": 2062942,
+    "uid": "B0977QP5L6",
+    "url": "https://amazon.fr/dp/B0977QP5L6",
+    "external_game_source": 20
+   },
+   {
+    "id": 1930111,
+    "uid": "B07SPYK271",
+    "url": "https://amazon.com/dp/B07SPYK271",
+    "external_game_source": 20
+   },
+   {
+    "id": 1932061,
+    "uid": "B07SMBNTSJ",
+    "external_game_source": 20
+   },
+   {
+    "id": 1775842,
+    "uid": "73745",
+    "url": "https://www.giantbomb.com/games/3030-73745/",
+    "external_game_source": 3
+   },
+   {
+    "id": 1933890,
+    "uid": "B07T8J15JQ",
+    "external_game_source": 20
+   },
+   {
+    "id": 2270864,
+    "uid": "9P3J32CTXLRZ",
+    "url": "https://www.xbox.com/en-us/games/store/elden-ring/9P3J32CTXLRZ",
+    "external_game_source": 11
+   },
+   {
+    "id": 2271018,
+    "uid": "B09QPYZ6R2",
+    "url": "https://amazon.fr/dp/B09QPYZ6R2",
+    "external_game_source": 20
+   },
+   {
+    "id": 2271058,
+    "uid": "B09QPZHJH9",
+    "url": "https://amazon.fr/dp/B09QPZHJH9",
+    "external_game_source": 20
+   },
+   {
+    "id": 2225572,
+    "uid": "B09QQYB8D9",
+    "url": "https://amazon.com/dp/B09QQYB8D9",
+    "external_game_source": 20
+   },
+   {
+    "id": 2635204,
+    "uid": "B097M66Y91",
+    "url": "https://amazon.fr/dp/B097M66Y91",
+    "external_game_source": 20
+   },
+   {
+    "id": 1914490,
+    "uid": "512953",
+    "url": "https://www.twitch.tv/directory/game/ELDEN%20RING",
+    "external_game_source": 14
+   },
+   {
+    "id": 2088476,
+    "uid": "B09D4KSL1B",
+    "url": "https://amazon.co.uk/dp/B09D4KSL1B",
+    "external_game_source": 20
+   },
+   {
+    "id": 2254892,
+    "uid": "B09QPYZ6R2",
+    "url": "https://amazon.fr/dp/B09QPYZ6R2",
+    "external_game_source": 20
+   },
+   {
+    "id": 2254895,
+    "uid": "B09SMC6J15",
+    "url": "https://amazon.co.uk/dp/B09SMC6J15",
+    "external_game_source": 20
+   },
+   {
+    "id": 2254935,
+    "uid": "B09SQ6VGTB",
+    "url": "https://amazon.es/dp/B09SQ6VGTB",
+    "external_game_source": 20
+   },
+   {
+    "id": 2184011,
+    "uid": "B09P1LTGH5",
+    "url": "https://amazon.fr/dp/B09P1LTGH5",
+    "external_game_source": 20
+   },
+   {
+    "id": 2233957,
+    "uid": "B09R3BZHXX",
+    "url": "https://amazon.de/dp/B09R3BZHXX",
+    "external_game_source": 20
+   },
+   {
+    "id": 2241900,
+    "uid": "B09QPYY5HJ",
+    "url": "https://amazon.fr/dp/B09QPYY5HJ",
+    "external_game_source": 20
+   },
+   {
+    "id": 2682210,
+    "uid": "B0B7RSBXFT",
+    "url": "https://amazon.it/dp/B0B7RSBXFT",
+    "external_game_source": 20
+   },
+   {
+    "id": 3232857,
+    "uid": "B07T8J27XQ",
+    "external_game_source": 20
+   },
+   {
+    "id": 2254996,
+    "uid": "B09QPYY5HJ",
+    "url": "https://amazon.fr/dp/B09QPYY5HJ",
+    "external_game_source": 20
+   },
+   {
+    "id": 2682054,
+    "uid": "B0B7RSBXFT",
+    "url": "https://amazon.fr/dp/B0B7RSBXFT",
+    "external_game_source": 20
+   },
+   {
+    "id": 2882831,
+    "uid": "B09R3C1QHH",
+    "url": "https://amazon.fr/dp/B09R3C1QHH",
+    "external_game_source": 20
+   },
+   {
+    "id": 2635202,
+    "uid": "B097M66Y91",
+    "url": "https://amazon.es/dp/B097M66Y91",
+    "external_game_source": 20
+   },
+   {
+    "id": 2062880,
+    "uid": "B0977PVNYX",
+    "url": "https://amazon.fr/dp/B0977PVNYX",
+    "external_game_source": 20
+   },
+   {
+    "id": 2225478,
+    "uid": "B09QQT2NWG",
+    "url": "https://amazon.es/dp/B09QQT2NWG",
+    "external_game_source": 20
+   },
+   {
+    "id": 2183928,
+    "uid": "B09P1LBC7K",
+    "url": "https://amazon.co.uk/dp/B09P1LBC7K",
+    "external_game_source": 20
+   },
+   {
+    "id": 2254918,
+    "uid": "B09QPZHJH9",
+    "url": "https://amazon.fr/dp/B09QPZHJH9",
+    "external_game_source": 20
+   },
+   {
+    "id": 2233934,
+    "uid": "B09R3HR7NY",
+    "url": "https://amazon.de/dp/B09R3HR7NY",
+    "external_game_source": 20
+   },
+   {
+    "id": 2636625,
+    "uid": "B09SMC6J15",
+    "url": "https://amazon.it/dp/B09SMC6J15",
+    "external_game_source": 20
+   },
+   {
+    "id": 2167564,
+    "uid": "B09L1C64SN",
+    "url": "https://amazon.jp/dp/B09L1C64SN",
+    "external_game_source": 20
+   },
+   {
+    "id": 2682308,
+    "uid": "B0B7RSBXFT",
+    "url": "https://amazon.es/dp/B0B7RSBXFT",
+    "external_game_source": 20
+   },
+   {
+    "id": 2271134,
+    "uid": "B09QPYY5HJ",
+    "url": "https://amazon.fr/dp/B09QPYY5HJ",
+    "external_game_source": 20
+   },
+   {
+    "id": 2233945,
+    "uid": "B09R3DSJMS",
+    "url": "https://amazon.de/dp/B09R3DSJMS",
+    "external_game_source": 20
+   },
+   {
+    "id": 2857523,
+    "uid": "B09R3HR7NY",
+    "url": "https://amazon.fr/dp/B09R3HR7NY",
+    "external_game_source": 20
+   },
+   {
+    "id": 2636627,
+    "uid": "B09SMC6J15",
+    "url": "https://amazon.es/dp/B09SMC6J15",
+    "external_game_source": 20
+   },
+   {
+    "id": 2233921,
+    "uid": "B09R3C1QHH",
+    "url": "https://amazon.de/dp/B09R3C1QHH",
+    "external_game_source": 20
+   },
+   {
+    "id": 2184002,
+    "uid": "B09P1MVC4J",
+    "url": "https://amazon.de/dp/B09P1MVC4J",
+    "external_game_source": 20
+   },
+   {
+    "id": 2062922,
+    "uid": "B0977LKSQ6",
+    "url": "https://amazon.fr/dp/B0977LKSQ6",
+    "external_game_source": 20
+   },
+   {
+    "id": 2241788,
+    "uid": "B09QPYZ6R2",
+    "url": "https://amazon.fr/dp/B09QPYZ6R2",
+    "external_game_source": 20
+   },
+   {
+    "id": 3219800,
+    "uid": "B0H7Q922M5",
+    "external_game_source": 20
+   },
+   {
+    "id": 2063058,
+    "uid": "B0979YW1Z9",
+    "url": "https://amazon.es/dp/B0979YW1Z9",
+    "external_game_source": 20
+   },
+   {
+    "id": 2064411,
+    "uid": "B097M66Y91",
+    "url": "https://amazon.co.uk/dp/B097M66Y91",
+    "external_game_source": 20
+   },
+   {
+    "id": 2636628,
+    "uid": "B09SMC6J15",
+    "url": "https://amazon.fr/dp/B09SMC6J15",
+    "external_game_source": 20
+   },
+   {
+    "id": 2241810,
+    "uid": "B09QPZHJH9",
+    "url": "https://amazon.fr/dp/B09QPZHJH9",
+    "external_game_source": 20
+   },
+   {
+    "id": 2062924,
+    "uid": "B097B15N2T",
+    "url": "https://amazon.es/dp/B097B15N2T",
+    "external_game_source": 20
+   },
+   {
+    "id": 2167628,
+    "uid": "B09L19LT8Q",
+    "url": "https://amazon.jp/dp/B09L19LT8Q",
+    "external_game_source": 20
+   },
+   {
+    "id": 3223289,
+    "uid": "B09W9WGSVL",
+    "external_game_source": 20
+   },
+   {
+    "id": 2084186,
+    "uid": "1245620",
+    "url": "https://store.steampowered.com/app/1245620",
+    "external_game_source": 1
+   },
+   {
+    "id": 3190344,
+    "uid": "B09MG3FTNC",
+    "external_game_source": 20
+   },
+   {
+    "id": 2172221,
+    "uid": "10000333",
+    "url": "https://store.playstation.com/en-us/concept/10000333",
+    "external_game_source": 36
+   }
+  ],
+  "first_release_date": 1645747200,
+  "franchises": [
+   {
+    "id": 8190,
+    "name": "Elden Ring"
+   }
+  ],
+  "game_engines": [
+   {
+    "id": 1891,
+    "name": "Dantelion"
+   }
+  ],
+  "game_modes": [
+   {
+    "id": 1,
+    "name": "Single player"
+   },
+   {
+    "id": 2,
+    "name": "Multiplayer"
+   },
+   {
+    "id": 3,
+    "name": "Co-operative"
+   }
+  ],
+  "genres": [
+   {
+    "id": 12,
+    "name": "Role-playing (RPG)"
+   },
+   {
+    "id": 31,
+    "name": "Adventure"
+   }
+  ],
+  "hypes": 96,
+  "involved_companies": [
+   {
+    "id": 334813,
+    "company": {
+     "id": 248,
+     "name": "Bandai Namco Entertainment"
+    },
+    "developer": false,
+    "publisher": true
+   },
+   {
+    "id": 334814,
+    "company": {
+     "id": 1012,
+     "name": "FromSoftware"
+    },
+    "developer": true,
+    "publisher": true
+   }
+  ],
+  "multiplayer_modes": [
+   {
+    "id": 28375,
+    "campaigncoop": true,
+    "lancoop": false,
+    "offlinecoop": false,
+    "offlinemax": 1,
+    "onlinecoop": true,
+    "onlinemax": 3,
+    "splitscreen": false
+   }
+  ],
+  "name": "Elden Ring",
+  "platforms": [
+   {
+    "id": 169,
+    "abbreviation": "Series X|S",
+    "name": "Xbox Series X|S"
+   },
+   {
+    "id": 48,
+    "abbreviation": "PS4",
+    "name": "PlayStation 4"
+   },
+   {
+    "id": 508,
+    "abbreviation": "Switch 2",
+    "name": "Nintendo Switch 2"
+   },
+   {
+    "id": 6,
+    "abbreviation": "PC",
+    "name": "PC (Microsoft Windows)"
+   },
+   {
+    "id": 167,
+    "abbreviation": "PS5",
+    "name": "PlayStation 5"
+   },
+   {
+    "id": 49,
+    "abbreviation": "XONE",
+    "name": "Xbox One"
+   }
+  ],
+  "player_perspectives": [
+   {
+    "id": 2,
+    "name": "Third person"
+   }
+  ],
+  "rating": 93.47966973239083,
+  "rating_count": 2337,
+  "screenshots": [
+   {
+    "id": 487788,
+    "image_id": "scagdo"
+   },
+   {
+    "id": 1406912,
+    "image_id": "scu5kw"
+   },
+   {
+    "id": 1406913,
+    "image_id": "scu5kx"
+   },
+   {
+    "id": 703441,
+    "image_id": "scf2s1"
+   },
+   {
+    "id": 487790,
+    "image_id": "scagdq"
+   },
+   {
+    "id": 487791,
+    "image_id": "scagdr"
+   },
+   {
+    "id": 487792,
+    "image_id": "scagds"
+   },
+   {
+    "id": 487786,
+    "image_id": "scagdm"
+   },
+   {
+    "id": 487789,
+    "image_id": "scagdp"
+   },
+   {
+    "id": 487787,
+    "image_id": "scagdn"
+   }
+  ],
+  "similar_games": [
+   {
+    "id": 2155,
+    "cover": {
+     "id": 89684,
+     "image_id": "co1x78"
+    },
+    "name": "Dark Souls",
+    "slug": "dark-souls"
+   },
+   {
+    "id": 2368,
+    "cover": {
+     "id": 558315,
+     "image_id": "cobysr"
+    },
+    "name": "Dark Souls II",
+    "slug": "dark-souls-ii"
+   },
+   {
+    "id": 23733,
+    "cover": {
+     "id": 67622,
+     "image_id": "td1t8kb33gyo8mvhl2pc"
+    },
+    "name": "Tunic",
+    "slug": "tunic"
+   },
+   {
+    "id": 5619,
+    "cover": {
+     "id": 103412,
+     "image_id": "co27sk"
+    },
+    "name": "Demon's Souls",
+    "slug": "demon-s-souls"
+   },
+   {
+    "id": 1942,
+    "cover": {
+     "id": 480513,
+     "image_id": "coaarl"
+    },
+    "name": "The Witcher 3: Wild Hunt",
+    "slug": "the-witcher-3-wild-hunt"
+   },
+   {
+    "id": 103329,
+    "cover": {
+     "id": 112591,
+     "image_id": "co2evj"
+    },
+    "name": "Control",
+    "slug": "control"
+   },
+   {
+    "id": 115289,
+    "cover": {
+     "id": 531786,
+     "image_id": "cobebu"
+    },
+    "name": "Hollow Knight: Silksong",
+    "slug": "hollow-knight-silksong"
+   },
+   {
+    "id": 1887,
+    "cover": {
+     "id": 122974,
+     "image_id": "co2mvy"
+    },
+    "name": "Dragon Age: Inquisition",
+    "slug": "dragon-age-inquisition"
+   },
+   {
+    "id": 6142,
+    "cover": {
+     "id": 96038,
+     "image_id": "co223q"
+    },
+    "name": "Risen 3: Titan Lords",
+    "slug": "risen-3-titan-lords"
+   },
+   {
+    "id": 3025,
+    "cover": {
+     "id": 94225,
+     "image_id": "co20pd"
+    },
+    "name": "Middle-earth: Shadow of Mordor",
+    "slug": "middle-earth-shadow-of-mordor"
+   }
+  ],
+  "slug": "elden-ring",
+  "summary": "Elden Ring is an action RPG developed by FromSoftware and published by Bandai Namco Entertainment, released in February 2022. Directed by Hidetaka Miyazaki, with world-building contributions from novelist George R. R. Martin, the game features an expansive open world called the Lands Between. Players assume the role of a customisable character known as the Tarnished, who must explore this world, battle formidable enemies, and seek to restore the Elden Ring to become the Elden Lord.\n\nThe game builds on the challenging gameplay mechanics familiar from the Dark Souls series but introduces a more open-ended structure with vast exploration, dynamic weather, and a day-night cycle. It offers deep lore, complex characters, and an interconnected world filled with secrets, dungeons, and powerful bosses.",
+  "themes": [
+   {
+    "id": 1,
+    "name": "Action"
+   },
+   {
+    "id": 17,
+    "name": "Fantasy"
+   },
+   {
+    "id": 38,
+    "name": "Open world"
+   }
+  ],
+  "total_rating": 95.18983486619541,
+  "total_rating_count": 2347,
+  "videos": [
+   {
+    "id": 58619,
+    "name": "Trailer",
+    "video_id": "D1mDo1CEMuE"
+   },
+   {
+    "id": 50584,
+    "name": "Gameplay Trailer",
+    "video_id": "E3Huy2cdih0"
+   },
+   {
+    "id": 64564,
+    "name": "Launch Trailer",
+    "video_id": "qqiC88f9ogU"
+   },
+   {
+    "id": 61874,
+    "name": "Trailer",
+    "video_id": "D8YkCHkWRyk"
+   },
+   {
+    "id": 62187,
+    "name": "Trailer",
+    "video_id": "DbPbQMuEyX8"
+   },
+   {
+    "id": 62188,
+    "name": "Gameplay Trailer",
+    "video_id": "l6pCyV7PnqI"
+   },
+   {
+    "id": 121254,
+    "name": "Announcement Trailer",
+    "video_id": "e5wwSxl0atc"
+   },
+   {
+    "id": 185696,
+    "name": "Accolades Trailer",
+    "video_id": "gyMcCOc6bIM"
+   }
+  ],
+  "websites": [
+   {
+    "id": 247126,
+    "url": "https://www.twitch.tv/directory/game/Elden%20Ring",
+    "type": {
+     "id": 6,
+     "type": "Twitch"
+    }
+   },
+   {
+    "id": 247127,
+    "url": "https://www.youtube.com/c/BandaiNamcoEntertainmentAmerica",
+    "type": {
+     "id": 9,
+     "type": "YouTube"
+    }
+   },
+   {
+    "id": 790471,
+    "url": "https://store.playstation.com/en-us/concept/10000333",
+    "type": {
+     "id": 23,
+     "type": "Playstation"
+    }
+   },
+   {
+    "id": 790470,
+    "url": "https://www.xbox.com/en-us/games/store/elden-ring/9P3J32CTXLRZ",
+    "type": {
+     "id": 22,
+     "type": "Xbox"
+    }
+   },
+   {
+    "id": 210645,
+    "url": "https://store.steampowered.com/app/1245620",
+    "type": {
+     "id": 13,
+     "type": "Steam"
+    }
+   },
+   {
+    "id": 225451,
+    "url": "https://www.facebook.com/ELDENRINGEU",
+    "type": {
+     "id": 4,
+     "type": "Facebook"
+    }
+   },
+   {
+    "id": 125915,
+    "url": "https://twitter.com/ELDENRING",
+    "type": {
+     "id": 5,
+     "type": "Twitter"
+    }
+   },
+   {
+    "id": 247128,
+    "url": "https://discord.gg/invite/eldenring",
+    "type": {
+     "id": 18,
+     "type": "Discord"
+    }
+   },
+   {
+    "id": 611948,
+    "url": "https://www.bandainamcoent.com/games/elden-ring",
+    "type": {
+     "id": 1,
+     "type": "Official Website"
+    }
+   },
+   {
+    "id": 125916,
+    "url": "https://reddit.com/r/EldenRing",
+    "type": {
+     "id": 14,
+     "type": "Subreddit"
+    }
+   },
+   {
+    "id": 225452,
+    "url": "https://www.instagram.com/eldenring?hl=en",
+    "type": {
+     "id": 8,
+     "type": "Instagram"
+    }
+   },
+   {
+    "id": 702891,
+    "url": "https://eldenring.wiki.gg/",
+    "type": {
+     "id": 2,
+     "type": "Community Wiki"
+    }
+   },
+   {
+    "id": 225453,
+    "url": "https://en.wikipedia.org/wiki/Elden_Ring",
+    "type": {
+     "id": 3,
+     "type": "Wikipedia"
+    }
+   }
+  ],
+  "language_supports": [
+   {
+    "id": 211093,
+    "language": {
+     "id": 12,
+     "locale": "fr-FR"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 211095,
+    "language": {
+     "id": 9,
+     "locale": "es-ES"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 211094,
+    "language": {
+     "id": 21,
+     "locale": "pt-BR"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 211092,
+    "language": {
+     "id": 7,
+     "locale": "en-US"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 211096,
+    "language": {
+     "id": 7,
+     "locale": "en-US"
+    },
+    "language_support_type": {
+     "id": 1,
+     "name": "Audio"
+    }
+   },
+   {
+    "id": 234332,
+    "language": {
+     "id": 12,
+     "locale": "fr-FR"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234331,
+    "language": {
+     "id": 7,
+     "locale": "en-US"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234333,
+    "language": {
+     "id": 15,
+     "locale": "it-IT"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234334,
+    "language": {
+     "id": 15,
+     "locale": "it-IT"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234335,
+    "language": {
+     "id": 27,
+     "locale": "de-DE"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234336,
+    "language": {
+     "id": 27,
+     "locale": "de-DE"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234337,
+    "language": {
+     "id": 9,
+     "locale": "es-ES"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234338,
+    "language": {
+     "id": 16,
+     "locale": "ja-JP"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234339,
+    "language": {
+     "id": 16,
+     "locale": "ja-JP"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234344,
+    "language": {
+     "id": 21,
+     "locale": "pt-BR"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234341,
+    "language": {
+     "id": 17,
+     "locale": "ko-KR"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234342,
+    "language": {
+     "id": 19,
+     "locale": "pl-PL"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234350,
+    "language": {
+     "id": 25,
+     "locale": "th-TH"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234345,
+    "language": {
+     "id": 22,
+     "locale": "ru-RU"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234348,
+    "language": {
+     "id": 2,
+     "locale": "zh-CN"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234343,
+    "language": {
+     "id": 19,
+     "locale": "pl-PL"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234349,
+    "language": {
+     "id": 25,
+     "locale": "th-TH"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234346,
+    "language": {
+     "id": 22,
+     "locale": "ru-RU"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 234340,
+    "language": {
+     "id": 17,
+     "locale": "ko-KR"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234351,
+    "language": {
+     "id": 3,
+     "locale": "zh-TW"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234347,
+    "language": {
+     "id": 2,
+     "locale": "zh-CN"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 234352,
+    "language": {
+     "id": 3,
+     "locale": "zh-TW"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   },
+   {
+    "id": 1730313,
+    "language": {
+     "id": 1,
+     "locale": "ar"
+    },
+    "language_support_type": {
+     "id": 3,
+     "name": "Interface"
+    }
+   },
+   {
+    "id": 1730314,
+    "language": {
+     "id": 1,
+     "locale": "ar"
+    },
+    "language_support_type": {
+     "id": 2,
+     "name": "Subtitles"
+    }
+   }
+  ],
+  "collections": [
+   {
+    "id": 10964,
+    "name": "Elden Ring"
+   }
+  ],
+  "game_type": {
+   "id": 0,
+   "type": "Main Game"
+  }
+ }
+]
