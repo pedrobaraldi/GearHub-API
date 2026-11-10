@@ -1,6 +1,7 @@
 package com.gearhub.reviews;
 
 import com.gearhub.config.FieldValidationException;
+import com.gearhub.notifications.NotificationService;
 import com.gearhub.reviews.ContentResponses.CommentItem;
 import com.gearhub.reviews.ContentResponses.LikeState;
 import com.gearhub.reviews.ContentResponses.SaveState;
@@ -24,22 +25,34 @@ public class InteractionService {
 
     private final JdbcClient jdbc;
     private final ContentService content;
+    private final NotificationService notifications;
 
-    public InteractionService(JdbcClient jdbc, ContentService content) {
+    public InteractionService(JdbcClient jdbc, ContentService content,
+            NotificationService notifications) {
+        this.notifications = notifications;
         this.jdbc = jdbc;
         this.content = content;
     }
 
     @Transactional
     public LikeState setLike(ContentKind kind, UUID id, UUID userId, boolean liked) {
-        content.ownerOf(kind, id);
-        return toggleLike(kind.likesTable(), kind.foreignKey(), kind.table(), id, userId, liked);
+        UUID owner = content.ownerOf(kind, id);
+        LikeState state = toggleLike(kind.likesTable(), kind.foreignKey(), kind.table(), id, userId, liked);
+        notifications.liked(kindName(kind), id, owner, userId, liked);
+        return state;
     }
 
     @Transactional
     public LikeState setCommentLike(UUID commentId, UUID userId, boolean liked) {
         requireComment(commentId);
-        return toggleLike("comment_likes", "comment_id", "comments", commentId, userId, liked);
+        LikeState state = toggleLike("comment_likes", "comment_id", "comments", commentId, userId, liked);
+        UUID owner = jdbc.sql("SELECT user_id FROM comments WHERE id = :id").param("id", commentId).query(UUID.class).single();
+        notifications.liked("comment", commentId, owner, userId, liked);
+        return state;
+    }
+
+    private static String kindName(ContentKind kind) {
+        return kind == ContentKind.POST ? "post" : "review";
     }
 
     private LikeState toggleLike(String likes, String foreignKey, String target, UUID id, UUID userId, boolean liked) {
@@ -104,7 +117,7 @@ public class InteractionService {
 
     @Transactional
     public UUID addComment(ContentKind kind, UUID id, UUID userId, String body, UUID parentId) {
-        content.ownerOf(kind, id);
+        UUID owner = content.ownerOf(kind, id);
         ReplyTarget target = parentId == null ? new ReplyTarget(null, null) : replyTarget(kind, id, parentId);
         UUID commentId = jdbc.sql("INSERT INTO comments (" + kind.foreignKey()
                 + ", user_id, body, parent_id, reply_to_user_id) VALUES (:id, :user, :body, :parent, :replyTo) RETURNING id")
@@ -113,6 +126,10 @@ public class InteractionService {
                 .query(UUID.class).single();
         jdbc.sql("UPDATE " + kind.table() + " SET comment_count = comment_count + 1 WHERE id = :id")
                 .param("id", id).update();
+        // Resposta avisa quem foi respondido: a pessoa citada, ou o autor do comentário original
+        UUID replied = parentId == null ? null : target.mention() != null ? target.mention()
+                : jdbc.sql("SELECT user_id FROM comments WHERE id = :id").param("id", target.root()).query(UUID.class).single();
+        notifications.commented(kindName(kind), id, owner, userId, body, replied);
         return commentId;
     }
 
