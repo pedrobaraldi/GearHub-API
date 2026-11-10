@@ -647,8 +647,9 @@ public class ContentService {
     }
 
     /** % e _ digitados são texto comum, não curingas. */
+    /** Padrão para {@code gh_unaccent(...) LIKE}: sem acento, e as palavras podem ter texto entre elas. */
     public static String likePattern(String term) {
-        return "%" + term.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return com.gearhub.config.SearchText.pattern(term);
     }
 
     @Transactional(readOnly = true)
@@ -662,7 +663,7 @@ public class ContentService {
         List<ProductSummary> products = jdbc.sql("""
                 SELECT p.id, p.slug, p.name, p.brand, c.name AS category, p.image_url, p.avg_score, p.review_count
                 FROM products p JOIN categories c ON c.id = p.category_id
-                WHERE p.name ILIKE :like OR p.brand ILIKE :like OR p.brand || ' ' || p.name ILIKE :like
+                WHERE p.game_id IS NULL AND gh_unaccent(concat_ws(' ', p.brand, p.name, c.name)) LIKE :like
                 ORDER BY p.review_count DESC, p.name LIMIT :limit
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
@@ -677,7 +678,7 @@ public class ContentService {
                        END AS ring_style,
                        u.founder_number IS NOT NULL AS founder
                 FROM users u
-                WHERE u.deleted_at IS NULL AND (u.username ILIKE :like OR u.display_name ILIKE :like)
+                WHERE u.deleted_at IS NULL AND gh_unaccent(concat_ws(' ', u.username, u.display_name)) LIKE :like
                 ORDER BY u.display_name LIMIT :limit
                 """)
                 .param("like", like).param("limit", SEARCH_LIMIT)
@@ -751,8 +752,10 @@ public class ContentService {
             sql.append(" AND r.created_at < :before");
         }
         if (query.text() != null) {
-            sql.append(" AND (r.title ILIKE :text OR r.body ILIKE :text OR u.display_name ILIKE :text");
-            sql.append(kind == ContentKind.POST ? ")" : " OR p.brand || ' ' || p.name ILIKE :text)");
+            // Todos os campos de uma vez: texto, autor, tópico ou categoria, tags, produto e jogo
+            sql.append(kind == ContentKind.POST
+                    ? " AND gh_unaccent(concat_ws(' ', r.title, r.body, u.display_name, u.username, c.name, r.tags::text, g.name)) LIKE :text"
+                    : " AND gh_unaccent(concat_ws(' ', r.title, r.body, u.display_name, u.username, c.name, p.brand, p.name, g.name)) LIKE :text");
         }
         if (query.savedBy() != null) {
             sql.append(" AND EXISTS (SELECT 1 FROM ").append(kind.savedTable()).append(" s WHERE s.")
