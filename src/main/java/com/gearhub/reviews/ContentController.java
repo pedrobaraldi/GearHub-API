@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,17 +35,23 @@ public class ContentController {
 
     private static final String KIND = "{kind:posts|reviews}";
 
-    private final ContentService content;
+    private final FeedService feed;
+    private final PostService posts;
+    private final ReviewService reviews;
+    private final ProductService products;
     private final InteractionService interactions;
     private final ContentImageService images;
     private final AdminAccess adminAccess;
 
-    public ContentController(ContentService content, InteractionService interactions, ContentImageService images,
-            AdminAccess adminAccess) {
-        this.adminAccess = adminAccess;
-        this.content = content;
+    public ContentController(FeedService feed, PostService posts, ReviewService reviews, ProductService products,
+            InteractionService interactions, ContentImageService images, AdminAccess adminAccess) {
+        this.feed = feed;
+        this.posts = posts;
+        this.reviews = reviews;
+        this.products = products;
         this.interactions = interactions;
         this.images = images;
+        this.adminAccess = adminAccess;
     }
 
     @GetMapping("/search")
@@ -54,13 +59,13 @@ public class ContentController {
     public ContentResponses.SearchResults search(
             @AuthenticationPrincipal CurrentUser current,
             @RequestParam String q) {
-        return content.search(q, idOf(current));
+        return feed.search(q, idOf(current));
     }
 
     @GetMapping("/post-topics")
     @Operation(summary = "Lista os tópicos disponíveis para posts")
     public List<ContentResponses.PostTopic> postTopics() {
-        return content.postTopics();
+        return posts.topics();
     }
 
     @PostMapping(path = "/uploads/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -86,37 +91,39 @@ public class ContentController {
             @RequestParam(required = false) String product,
             @Parameter(description = "Slug do jogo: posts sobre ele e reviews dele") @RequestParam(required = false) String game,
             @RequestParam(required = false) String q,
-            @RequestParam(required = false) Instant before,
+            @Parameter(description = "O `nextCursor` da página anterior") @RequestParam(required = false) String before,
             @RequestParam(defaultValue = "10") int size) {
-        String text = q == null || q.isBlank() ? null : ContentService.likePattern(q);
-        return content.feed(new ContentService.FeedQuery(category, author, null, before, text, size, product, game), idOf(current));
+        String text = q == null || q.isBlank() ? null : FeedService.likePattern(q);
+        return feed.feed(new FeedService.FeedQuery(category, author, null, FeedCursor.parse(before), text, size, product, game),
+                idOf(current));
     }
 
     @GetMapping("/me/saved")
     @Operation(summary = "Lista as publicações salvas", security = @SecurityRequirement(name = "session"))
     public ContentResponses.FeedPage saved(
             @AuthenticationPrincipal CurrentUser current,
-            @RequestParam(required = false) Instant before,
+            @Parameter(description = "O `nextCursor` da página anterior") @RequestParam(required = false) String before,
             @RequestParam(defaultValue = "20") int size) {
-        return content.feed(new ContentService.FeedQuery(null, null, current.id(), before, null, size, null, null), current.id());
+        return feed.feed(new FeedService.FeedQuery(null, null, current.id(), FeedCursor.parse(before), null, size, null, null),
+                current.id());
     }
 
     @GetMapping("/products")
     @Operation(summary = "Lista os produtos, com filtro opcional por categoria")
     public List<ContentResponses.ProductSummary> products(@RequestParam(required = false) String category) {
-        return content.products(category);
+        return products.list(category);
     }
 
     @GetMapping("/hall")
     @Operation(summary = "Lista os destaques: reviewers com mais XP, setups com foto e produtos mais bem avaliados")
     public ContentResponses.Hall hall() {
-        return content.hall();
+        return products.hall();
     }
 
     @GetMapping("/products/{slug}")
     @Operation(summary = "Busca um produto pelo slug")
     public ContentResponses.ProductDetail product(@PathVariable String slug) {
-        return content.product(slug);
+        return products.detail(slug);
     }
 
     @PostMapping("/posts")
@@ -125,13 +132,13 @@ public class ContentController {
     public Map<String, UUID> createPost(
             @AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody ContentRequests.SavePost request) {
-        return Map.of("id", content.createPost(current.id(), request));
+        return Map.of("id", posts.create(current.id(), request));
     }
 
     @GetMapping("/posts/{id}/edit")
     @Operation(summary = "Dados do próprio post para edição", security = @SecurityRequirement(name = "session"))
     public ContentResponses.PostDraft postDraft(@AuthenticationPrincipal CurrentUser current, @PathVariable UUID id) {
-        return content.postDraft(current.id(), id);
+        return posts.draft(current.id(), id);
     }
 
     @PatchMapping("/posts/{id}")
@@ -142,7 +149,7 @@ public class ContentController {
             @AuthenticationPrincipal CurrentUser current,
             @PathVariable UUID id,
             @Valid @RequestBody ContentRequests.SavePost request) {
-        content.updatePost(current.id(), id, request);
+        posts.update(current.id(), id, request);
     }
 
     @PostMapping("/reviews")
@@ -153,13 +160,13 @@ public class ContentController {
     public Map<String, UUID> createReview(
             @AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody ContentRequests.CreateReview request) {
-        return Map.of("id", content.createReview(current.id(), request));
+        return Map.of("id", reviews.create(current.id(), request));
     }
 
     @GetMapping("/reviews/{id}/edit")
     @Operation(summary = "Dados da própria review para edição", security = @SecurityRequirement(name = "session"))
     public ContentResponses.ReviewDraft reviewDraft(@AuthenticationPrincipal CurrentUser current, @PathVariable UUID id) {
-        return content.reviewDraft(current.id(), id);
+        return reviews.draft(current.id(), id);
     }
 
     @PatchMapping("/reviews/{id}")
@@ -170,7 +177,7 @@ public class ContentController {
             @AuthenticationPrincipal CurrentUser current,
             @PathVariable UUID id,
             @Valid @RequestBody ContentRequests.UpdateReview request) {
-        content.updateReview(current.id(), id, request);
+        reviews.update(current.id(), id, request);
     }
 
     @DeleteMapping("/" + KIND + "/{id}")
@@ -178,7 +185,11 @@ public class ContentController {
     @Operation(summary = "Apaga a própria publicação", security = @SecurityRequirement(name = "session"))
     @ApiResponse(responseCode = "403", description = "A publicação é de outra pessoa")
     public void delete(@AuthenticationPrincipal CurrentUser current, @PathVariable String kind, @PathVariable UUID id) {
-        content.delete(ContentKind.fromPath(kind), current.id(), id);
+        if (ContentKind.fromPath(kind) == ContentKind.POST) {
+            posts.delete(current.id(), id);
+        } else {
+            reviews.delete(current.id(), id);
+        }
     }
 
     @PutMapping("/" + KIND + "/{id}/like")

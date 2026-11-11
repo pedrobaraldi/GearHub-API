@@ -25,21 +25,21 @@ public class InteractionService {
     private static final int MAX_COMMENTS = 200;
 
     private final JdbcClient jdbc;
-    private final ContentService content;
+    private final Publications publications;
     private final NotificationService notifications;
     private final AuditService audit;
 
-    public InteractionService(JdbcClient jdbc, ContentService content,
+    public InteractionService(JdbcClient jdbc, Publications publications,
             NotificationService notifications, AuditService audit) {
         this.audit = audit;
         this.notifications = notifications;
         this.jdbc = jdbc;
-        this.content = content;
+        this.publications = publications;
     }
 
     @Transactional
     public LikeState setLike(ContentKind kind, UUID id, UUID userId, boolean liked) {
-        UUID owner = content.ownerOf(kind, id);
+        UUID owner = publications.ownerOf(kind, id);
         LikeState state = toggleLike(kind.likesTable(), kind.foreignKey(), kind.table(), id, userId, liked);
         notifications.liked(kindName(kind), id, owner, userId, liked);
         return state;
@@ -74,7 +74,7 @@ public class InteractionService {
 
     @Transactional
     public SaveState setSaved(ContentKind kind, UUID id, UUID userId, boolean saved) {
-        content.ownerOf(kind, id);
+        publications.ownerOf(kind, id);
         String change = saved
                 ? "INSERT INTO " + kind.savedTable() + " (" + kind.foreignKey() + ", user_id) VALUES (:id, :user) ON CONFLICT DO NOTHING"
                 : "DELETE FROM " + kind.savedTable() + " WHERE " + kind.foreignKey() + " = :id AND user_id = :user";
@@ -84,7 +84,7 @@ public class InteractionService {
 
     @Transactional(readOnly = true)
     public List<CommentItem> comments(ContentKind kind, UUID id, UUID viewerId) {
-        content.ownerOf(kind, id);
+        publications.ownerOf(kind, id);
         Set<UUID> liked = new HashSet<>();
         if (viewerId != null) {
             liked.addAll(jdbc.sql("""
@@ -98,9 +98,7 @@ public class InteractionService {
                 SELECT c.id, c.user_id, c.body, c.like_count, c.created_at, c.parent_id,
                        t.display_name AS reply_to,
                        u.username, u.display_name, u.avatar_url, u.rank_name, u.level, u.is_pro,
-                       CASE WHEN u.ring_style = 'founder' AND u.founder_number IS NOT NULL THEN 'founder'
-                            WHEN EXISTS (SELECT 1 FROM ranks rk WHERE rk.name = u.ring_style AND rk.min_level <= u.level) THEN u.ring_style
-                       END AS ring_style,
+                       gh_ring_style(u.ring_style, u.founder_number, u.level) AS ring_style,
                        u.founder_number IS NOT NULL AS founder
                 FROM comments c JOIN users u ON u.id = c.user_id
                 LEFT JOIN users t ON t.id = c.reply_to_user_id
@@ -110,7 +108,7 @@ public class InteractionService {
                 .param("id", id).param("limit", MAX_COMMENTS)
                 .query((rs, row) -> {
                     UUID commentId = rs.getObject("id", UUID.class);
-                    return new CommentItem(commentId, ContentService.author(rs), rs.getString("body"),
+                    return new CommentItem(commentId, Publications.author(rs), rs.getString("body"),
                             rs.getTimestamp("created_at").toInstant(), rs.getInt("like_count"),
                             liked.contains(commentId), rs.getObject("user_id", UUID.class).equals(viewerId),
                             rs.getObject("parent_id", UUID.class), rs.getString("reply_to"));
@@ -120,7 +118,7 @@ public class InteractionService {
 
     @Transactional
     public UUID addComment(ContentKind kind, UUID id, UUID userId, String body, UUID parentId) {
-        UUID owner = content.ownerOf(kind, id);
+        UUID owner = publications.ownerOf(kind, id);
         ReplyTarget target = parentId == null ? new ReplyTarget(null, null) : replyTarget(kind, id, parentId);
         UUID commentId = jdbc.sql("INSERT INTO comments (" + kind.foreignKey()
                 + ", user_id, body, parent_id, reply_to_user_id) VALUES (:id, :user, :body, :parent, :replyTo) RETURNING id")

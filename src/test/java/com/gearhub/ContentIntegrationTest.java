@@ -253,6 +253,50 @@ class ContentIntegrationTest {
                 .contains("Viper V3 Pro").doesNotContain("Wooting");
     }
 
+    @Test
+    void feedNaoPulaPublicacoesDoMesmoInstante() throws Exception {
+        Map<String, String> user = newUser();
+        for (int n = 1; n <= 3; n++) {
+            assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Mesmo instante " + n + "\"}", user).statusCode())
+                    .isEqualTo(201);
+        }
+        String username = jdbc.queryForObject("""
+                SELECT u.username FROM posts p JOIN users u ON u.id = p.user_id WHERE p.body = 'Mesmo instante 1'
+                """, String.class);
+        jdbc.update("UPDATE posts SET created_at = '2026-01-01T12:00:00Z' WHERE body LIKE 'Mesmo instante %'");
+
+        // Uma por página: com o marcador só de data, as outras duas sumiriam depois da primeira
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        String cursor = null;
+        for (int page = 0; page < 5; page++) {
+            String path = "/api/v1/feed?size=1&author=" + username
+                    + (cursor == null ? "" : "&before=" + java.net.URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+            HttpResponse<String> response = call("GET", path, null, viewer());
+            assertThat(response.statusCode()).isEqualTo(200);
+            java.util.regex.Matcher body = java.util.regex.Pattern.compile("Mesmo instante \\d").matcher(response.body());
+            while (body.find()) {
+                seen.add(body.group());
+            }
+            java.util.regex.Matcher next = java.util.regex.Pattern.compile("\"nextCursor\":\"([^\"]+)\"").matcher(response.body());
+            if (!next.find()) {
+                break;
+            }
+            cursor = next.group(1);
+        }
+        assertThat(seen).containsExactlyInAnyOrder("Mesmo instante 1", "Mesmo instante 2", "Mesmo instante 3");
+
+        // Marcador antigo, só com a data, continua aceito; lixo vira 400
+        assertThat(call("GET", "/api/v1/feed?before=2026-01-01T12:00:01Z", null, viewer()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", "/api/v1/feed?before=qualquer-coisa", null, viewer()).statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void buscaAchaPessoaPeloNomeSemAcento() throws Exception {
+        String body = call("GET", "/api/v1/search?q=" + java.net.URLEncoder.encode("autor", StandardCharsets.UTF_8),
+                null, viewer()).body();
+        assertThat(body).contains("\"people\":[{");
+    }
+
     private HttpResponse<String> uploadAvatar(byte[] file, Map<String, String> headers) throws Exception {
         String boundary = "limite";
         byte[] head = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.png\"\r\n"

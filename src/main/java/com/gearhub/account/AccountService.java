@@ -5,7 +5,7 @@ import com.gearhub.auth.RateLimiter;
 import com.gearhub.auth.TwoFactorService;
 import com.gearhub.config.FieldValidationException;
 import com.gearhub.crypto.CryptoService;
-import com.gearhub.reviews.ContentService;
+import com.gearhub.reviews.ProductService;
 import com.gearhub.users.User;
 import com.gearhub.users.UserRepository;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -54,11 +54,11 @@ public class AccountService {
     private final CryptoService crypto;
     private final TwoFactorService twoFactor;
     private final RateLimiter rateLimiter;
-    private final ContentService content;
+    private final ProductService products;
     private final AuditService audit;
 
     public AccountService(UserRepository users, JdbcClient jdbc, PasswordEncoder passwords, CryptoService crypto,
-            TwoFactorService twoFactor, RateLimiter rateLimiter, ContentService content, AuditService audit) {
+            TwoFactorService twoFactor, RateLimiter rateLimiter, ProductService products, AuditService audit) {
         this.audit = audit;
         this.users = users;
         this.jdbc = jdbc;
@@ -66,7 +66,7 @@ public class AccountService {
         this.crypto = crypto;
         this.twoFactor = twoFactor;
         this.rateLimiter = rateLimiter;
-        this.content = content;
+        this.products = products;
     }
 
     @Transactional(readOnly = true)
@@ -204,7 +204,7 @@ public class AccountService {
                 .param("now", java.sql.Timestamp.from(now)).param("id", userId).update();
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", userId).update();
         // As reviews deixam de contar na nota dos produtos enquanto a conta está apagada
-        content.refreshScoresOfAuthor(userId);
+        products.refreshScoresOfAuthor(userId);
         audit.record(userId, "account.delete");
         return new Deletion(now.plus(User.DELETION_GRACE_DAYS, ChronoUnit.DAYS), User.DELETION_GRACE_DAYS);
     }
@@ -216,7 +216,7 @@ public class AccountService {
             return;
         }
         jdbc.sql("UPDATE users SET deleted_at = NULL WHERE id = :id").param("id", user.getId()).update();
-        content.refreshScoresOfAuthor(user.getId());
+        products.refreshScoresOfAuthor(user.getId());
         audit.record(user.getId(), "account.restore");
     }
 

@@ -48,6 +48,7 @@ Rodam contra um Postgres real embutido, sem precisar de Docker.
 
 - Migrations em `src/main/resources/db/migration`. Nunca edite uma que já foi aplicada: crie uma nova.
 - Dados de exemplo em `src/main/resources/db/dev`, carregados só no perfil `dev`.
+- Acesso ao banco: SQL direto com `JdbcClient`. O JPA fica só na conta e na sessão (`User` e `UserSession`), onde a criptografia dos campos pessoais é feita pelo conversor de coluna.
 
 ## Perfis
 

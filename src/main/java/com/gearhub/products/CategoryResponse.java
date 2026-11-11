@@ -19,16 +19,4 @@ public record CategoryResponse(
             @Schema(description = "Se o campo precisa ser preenchido para publicar a review") boolean required,
             @Schema(description = "Sugestões do formulário; outros valores também são aceitos") List<String> options) {
     }
-
-    static CategoryResponse from(Category category) {
-        return new CategoryResponse(
-                category.getSlug(),
-                category.getName(),
-                category.getCriteria().stream()
-                        .map(c -> new CriterionResponse(c.getId(), c.getLabel()))
-                        .toList(),
-                category.getSpecFields().stream()
-                        .map(f -> new SpecFieldResponse(f.getKey(), f.getLabel(), f.isRequired(), f.getOptions()))
-                        .toList());
-    }
 }
