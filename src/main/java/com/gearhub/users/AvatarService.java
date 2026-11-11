@@ -77,6 +77,8 @@ public class AvatarService {
         if (extension == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envie uma imagem JPG, PNG ou WebP.");
         }
+        // Sem EXIF (localização GPS, aparelho), XMP e comentários: qualquer pessoa logada vê o arquivo
+        content = withoutMetadata(content, extension);
         String name = UUID.randomUUID() + "." + extension;
         try {
             Files.createDirectories(directory);
@@ -104,6 +106,15 @@ public class AvatarService {
     }
 
     /** Confere o conteúdo real do arquivo: extensão e tipo informados podem ser falsos. */
+    /** Tira os metadados da foto; arquivo corrompido é recusado. */
+    public static byte[] withoutMetadata(byte[] content, String extension) {
+        try {
+            return ImageMetadata.strip(content, extension);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Imagem inválida ou corrompida. Envie outro arquivo.");
+        }
+    }
+
     public static String detectExtension(byte[] data) {
         if (data.length > 12) {
             if (startsWith(data, 0, new int[] {0xFF, 0xD8, 0xFF})) {

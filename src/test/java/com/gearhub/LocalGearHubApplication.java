@@ -16,6 +16,10 @@ public class LocalGearHubApplication {
     private static final File DATA_DIRECTORY = new File(".local-db");
 
     public static void main(String[] args) throws IOException {
+        // Execução local: perfil de desenvolvimento (o padrão da API é produção)
+        if (System.getProperty("spring.profiles.active") == null && System.getenv("SPRING_PROFILES_ACTIVE") == null) {
+            System.setProperty("spring.profiles.active", "dev");
+        }
         EmbeddedPostgres postgres = EmbeddedPostgres.builder()
                 .setPort(POSTGRES_PORT)
                 .setDataDirectory(DATA_DIRECTORY)

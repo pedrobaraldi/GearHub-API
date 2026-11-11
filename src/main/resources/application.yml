@@ -2,7 +2,9 @@ spring:
   application:
     name: gearhub-api
   profiles:
-    default: dev
+    # Sem perfil escolhido, sobe como produção: sem as chaves de verdade (variáveis de ambiente) a API nem
+    # inicia, em vez de usar as chaves públicas de desenvolvimento. Desenvolvimento escolhe "dev" de propósito
+    default: prod
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/gearhub}
     username: ${DATABASE_USERNAME:gearhub}

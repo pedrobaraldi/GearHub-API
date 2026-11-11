@@ -44,6 +44,8 @@ public class ContentImageService {
             if (extension == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envie uma imagem JPG, PNG ou WebP.");
             }
+            // Sem EXIF (localização GPS, aparelho), XMP e comentários: qualquer pessoa logada vê o arquivo
+            content = AvatarService.withoutMetadata(content, extension);
             String name = UUID.randomUUID() + "." + extension;
             Files.createDirectories(directory);
             Files.write(directory.resolve(name), content);

@@ -25,7 +25,7 @@ Para ativar o login com Google e Discord nessa execução, copie `.env.example` 
 
 ```bash
 docker compose up -d
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 ## Endereços
@@ -53,5 +53,5 @@ Rodam contra um Postgres real embutido, sem precisar de Docker.
 
 | Perfil | Uso |
 |---|---|
-| `dev` | Padrão. Inclui dados de exemplo e Swagger |
-| `prod` | Sem dados de exemplo e sem Swagger. Ative com `SPRING_PROFILES_ACTIVE=prod` |
+| `prod` | Padrão. Sem dados de exemplo e sem Swagger. Exige as chaves de verdade nas variáveis de ambiente (`GEARHUB_AES_KEY`, `GEARHUB_HMAC_KEY` e as demais do `.env.example`): sem elas a API não inicia |
+| `dev` | Dados de exemplo, Swagger e chaves de desenvolvimento. O `npm run dev` e os testes já usam este; em outros casos, `SPRING_PROFILES_ACTIVE=dev` |

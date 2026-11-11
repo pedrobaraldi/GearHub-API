@@ -272,14 +272,25 @@ class ContentIntegrationTest {
     @Test
     void trocaFotoEValidaOArquivoDeVerdade() throws Exception {
         Map<String, String> user = newUser();
-        byte[] png = new byte[64];
-        System.arraycopy(new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47}, 0, png, 0, 4);
+        // PNG de verdade com um bloco de texto escondido (como o GPS que celulares gravam)
+        byte[] png = com.gearhub.users.ImageMetadataTest.pngWithText("GPSLatitude=-23.55");
 
         HttpResponse<String> ok = uploadAvatar(png, user);
         assertThat(ok.statusCode()).isEqualTo(200);
         String url = ok.body().replaceAll(".*\"avatarUrl\":\"([^\"]+)\".*", "$1");
         assertThat(url).startsWith("/uploads/avatars/").endsWith(".png");
-        assertThat(call("GET", url, null, viewer()).statusCode()).isEqualTo(200);
+        HttpResponse<byte[]> stored = HTTP.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + url))
+                .headers(viewer().entrySet().stream().flatMap(entry -> java.util.stream.Stream.of(entry.getKey(), entry.getValue()))
+                        .toArray(String[]::new)).build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(stored.statusCode()).isEqualTo(200);
+        // Chega sem o texto escondido e continua sendo uma imagem válida
+        assertThat(new String(stored.body(), StandardCharsets.ISO_8859_1)).doesNotContain("GPSLatitude");
+        assertThat(javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(stored.body())).getWidth()).isEqualTo(4);
+
+        // PNG cortado no meio, como um envio que falhou
+        HttpResponse<String> broken = uploadAvatar(java.util.Arrays.copyOf(png, 60), user);
+        assertThat(broken.statusCode()).isEqualTo(400);
+        assertThat(broken.body()).contains("Imagem inválida ou corrompida");
 
         HttpResponse<String> fake = uploadAvatar("<script>alert(1)</script> nao e imagem".getBytes(StandardCharsets.UTF_8), user);
         assertThat(fake.statusCode()).isEqualTo(400);
@@ -323,6 +334,35 @@ class ContentIntegrationTest {
         Integer before = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
         call("GET", "/api/v1/auth/google/callback?code=abc&state=" + value, null, Map.of("Cookie", state));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(before);
+    }
+
+    @Test
+    void googleTiraASenhaDeQuemCriouAContaSemProvarOEmail() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String email = "vitima" + id + "@gmail.com";
+        // Alguém cria conta com o e-mail da vítima e uma senha dele (o e-mail nunca foi confirmado)
+        HttpResponse<String> attacker = call("POST", "/api/v1/auth/register", """
+                {"displayName":"Falso","username":"falso%s","email":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(id, email, PASSWORD, PASSWORD), Map.of());
+        assertThat(attacker.statusCode()).isEqualTo(201);
+        Map<String, String> attackerSession = Map.of("Cookie", attacker.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+
+        // A dona do e-mail entra pelo Google: prova que o e-mail é dela
+        googleProfile = """
+                {"sub":"%s","email":"%s","email_verified":true,"name":"Vítima"}
+                """.formatted(id, email);
+        String state = startGoogleLogin();
+        HttpResponse<String> google = call("GET", "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1], null,
+                Map.of("Cookie", state));
+        Map<String, String> ownerSession = Map.of("Cookie", google.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+
+        // A senha e a sessão de quem criou a conta deixam de valer; a dona entra
+        assertThat(call("GET", "/api/v1/auth/me", null, attackerSession).statusCode()).isEqualTo(401);
+        assertThat(call("POST", "/api/v1/auth/login", "{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}", Map.of())
+                .statusCode()).isEqualTo(401);
+        assertThat(call("GET", "/api/v1/auth/me", null, ownerSession).body()).contains("\"emailVerified\":true", "\"hasPassword\":false");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE action = 'account.email_proven'", Integer.class))
+                .isGreaterThanOrEqualTo(1);
     }
 
     @Test

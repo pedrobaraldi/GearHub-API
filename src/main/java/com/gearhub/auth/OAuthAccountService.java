@@ -1,5 +1,6 @@
 package com.gearhub.auth;
 
+import com.gearhub.admin.AuditService;
 import com.gearhub.crypto.CryptoService;
 import com.gearhub.users.User;
 import com.gearhub.users.UserRepository;
@@ -22,8 +23,10 @@ public class OAuthAccountService {
     private final UserRepository users;
     private final CryptoService crypto;
     private final JdbcClient jdbc;
+    private final AuditService audit;
 
-    public OAuthAccountService(UserRepository users, CryptoService crypto, JdbcClient jdbc) {
+    public OAuthAccountService(UserRepository users, CryptoService crypto, JdbcClient jdbc, AuditService audit) {
+        this.audit = audit;
         this.users = users;
         this.crypto = crypto;
         this.jdbc = jdbc;
@@ -49,9 +52,10 @@ public class OAuthAccountService {
         }
         String email = profile.email().strip().toLowerCase(Locale.ROOT);
         String emailHash = crypto.blindIndex(email);
-        User user = users.findByEmailHash(emailHash)
-                .filter(found -> found.getDeletedAt() == null || found.isRestorable())
-                .orElseGet(() -> createUser(profile.name(), email, emailHash));
+        Optional<User> existing = users.findByEmailHash(emailHash)
+                .filter(found -> found.getDeletedAt() == null || found.isRestorable());
+        existing.filter(found -> found.getEmailVerifiedAt() == null).ifPresent(this::secureUnverifiedAccount);
+        User user = existing.orElseGet(() -> createUser(profile.name(), email, emailHash));
         user.markEmailVerified();
 
         jdbc.sql("""
@@ -64,6 +68,31 @@ public class OAuthAccountService {
                 .param("hash", subjectHash)
                 .update();
         return user;
+    }
+
+    /**
+     * Proteção contra sequestro antecipado de conta: alguém pode ter criado conta com o e-mail de outra pessoa
+     * (sem confirmar o e-mail) e esperado a dona entrar pelo Google. Quem chega aqui provou ser dona do e-mail:
+     * a senha e o 2FA criados sem essa prova deixam de valer, e todas as sessões abertas são encerradas.
+     * A pessoa cria uma senha nova em Configurações, se quiser.
+     */
+    private void secureUnverifiedAccount(User user) {
+        boolean hadPassword = user.getPasswordHash() != null;
+        if (hadPassword) {
+            user.changePassword(null);
+        }
+        jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", user.getId()).update();
+        int twoFactor = jdbc.sql("""
+                UPDATE users SET totp_secret_encrypted = NULL, two_factor_enabled_at = NULL, totp_last_step = NULL
+                WHERE id = :user AND totp_secret_encrypted IS NOT NULL
+                """).param("user", user.getId()).update();
+        if (twoFactor > 0) {
+            jdbc.sql("DELETE FROM two_factor_recovery_codes WHERE user_id = :user").param("user", user.getId()).update();
+            jdbc.sql("DELETE FROM user_badges WHERE user_id = :user AND badge_key = 'protected'").param("user", user.getId()).update();
+            jdbc.sql("SELECT refresh_user_progress(:user)").param("user", user.getId()).query().listOfRows();
+        }
+        audit.record(user.getId(), "account.email_proven",
+                null, null, java.util.Map.of("passwordRemoved", hadPassword, "twoFactorRemoved", twoFactor > 0));
     }
 
     private User createUser(String name, String email, String emailHash) {
