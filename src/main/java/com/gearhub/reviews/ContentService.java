@@ -908,13 +908,21 @@ public class ContentService {
                     target.computeIfAbsent(rs.getObject("review_id", UUID.class), id -> new ArrayList<>())
                             .add(rs.getString("text"));
                 });
+        // Rótulos da ficha de todas as categorias da página numa consulta só, e não uma por review
+        List<Integer> categoryIds = rows.stream().map(ReviewRow::categoryId).distinct().toList();
+        Map<Integer, List<String[]>> fields = new HashMap<>();
+        jdbc.sql("SELECT category_id, key, label FROM spec_fields WHERE category_id IN (:ids) ORDER BY position")
+                .param("ids", categoryIds).query(rs -> {
+                    fields.computeIfAbsent(rs.getInt("category_id"), id -> new ArrayList<>())
+                            .add(new String[] {rs.getString("key"), rs.getString("label")});
+                });
 
         return rows.stream().map(row -> {
             FeedItem base = row.base();
             return new FeedItem(base.kind(), base.id(), base.author(), base.createdAt(), base.title(), base.body(),
                     base.category(), base.likeCount(), base.commentCount(), base.product(), base.score(),
                     base.coverUrl(), scores.getOrDefault(base.id(), List.of()),
-                    labeledSpecs(row.categoryId(), row.specsJson()),
+                    labeledSpecs(fields.getOrDefault(row.categoryId(), List.of()), row.specsJson()),
                     pros.getOrDefault(base.id(), List.of()), cons.getOrDefault(base.id(), List.of()),
                     List.of(), base.images(), base.game(), false, false, false);
         }).toList();
@@ -925,14 +933,15 @@ public class ContentService {
         });
     }
 
-    private List<Spec> labeledSpecs(int categoryId, String specsJson) {
+    /** {@code fields}: pares chave e rótulo da ficha, na ordem de exibição. */
+    private List<Spec> labeledSpecs(List<String[]> fields, String specsJson) {
         Map<String, String> values = parseSpecs(specsJson);
         if (values.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("SELECT key, label FROM spec_fields WHERE category_id = :category ORDER BY position")
-                .param("category", categoryId)
-                .query((rs, row) -> new Spec(rs.getString("label"), values.get(rs.getString("key"))))
-                .list().stream().filter(spec -> spec.value() != null).toList();
+        return fields.stream()
+                .map(field -> new Spec(field[1], values.get(field[0])))
+                .filter(spec -> spec.value() != null)
+                .toList();
     }
 }

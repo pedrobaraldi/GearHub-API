@@ -1,6 +1,5 @@
 package com.gearhub.users;
 
-import com.gearhub.admin.AuditService;
 import com.gearhub.auth.CurrentUser;
 import com.gearhub.auth.AdminAccess;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,11 +8,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -25,43 +21,34 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/v1/users")
 @Tag(name = "Usuários", description = "Perfis públicos e dados da própria conta")
 public class UserController {
 
-    private final UserRepository users;
+    private final ProfileService profiles;
     private final AvatarService avatars;
     private final FollowService follows;
     private final BadgeService badges;
-    private final RingStyleService ringStyles;
     private final AdminAccess adminAccess;
-    private final AuditService audit;
 
-    public UserController(UserRepository users, AvatarService avatars, FollowService follows, BadgeService badges,
-            RingStyleService ringStyles, AdminAccess adminAccess, AuditService audit) {
-        this.audit = audit;
-        this.adminAccess = adminAccess;
-        this.users = users;
+    public UserController(ProfileService profiles, AvatarService avatars, FollowService follows, BadgeService badges,
+            AdminAccess adminAccess) {
+        this.profiles = profiles;
         this.avatars = avatars;
         this.follows = follows;
         this.badges = badges;
-        this.ringStyles = ringStyles;
+        this.adminAccess = adminAccess;
     }
 
     @GetMapping("/{username}")
-    @Transactional(readOnly = true)
     @Operation(summary = "Busca o perfil público de um usuário")
     @ApiResponse(responseCode = "404", description = "Usuário não encontrado")
     public UserResponses.PublicProfile profile(
             @AuthenticationPrincipal CurrentUser current,
             @PathVariable String username) {
-        User user = users.findByUsernameAndDeletedAtIsNull(username)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado"));
-        return UserResponses.PublicProfile.from(user, follows.counts(user.getId(), current == null ? null : current.id()),
-                badges.of(user.getId()), ringStyles.effective(user.getId()));
+        return profiles.publicProfile(username, current == null ? null : current.id());
     }
 
     @PutMapping("/{username}/badges/{key}")
@@ -135,66 +122,10 @@ public class UserController {
     }
 
     @PatchMapping("/me")
-    @Transactional
     @Operation(summary = "Atualiza o próprio perfil", security = @SecurityRequirement(name = "session"))
     public UserResponses.Me update(
             @AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody UpdateProfileRequest request) {
-        User user = users.findById(current.id()).orElseThrow();
-        Map<String, String> before = profileOf(user);
-        if (request.username() != null && !request.username().equals(user.getUsername())) {
-            if (users.existsByUsername(request.username())) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse nome de usuário já está em uso");
-            }
-            user.changeUsername(request.username());
-        }
-        String displayName = request.displayName() == null ? user.getDisplayName() : request.displayName().strip();
-        user.updateProfile(displayName, merged(request.bio(), user.getBio()));
-        user.updateLinks(merged(request.website(), user.getWebsite()),
-                withoutAt(merged(request.twitter(), user.getTwitter())),
-                withoutAt(merged(request.instagram(), user.getInstagram())),
-                merged(request.youtube(), user.getYoutube()));
-        if (request.ringStyle() != null) {
-            user.chooseRing(ringStyles.validated(user.getId(), request.ringStyle().strip()));
-        }
-        // Histórico do perfil: só o que mudou, com o valor de antes e o de depois
-        Map<String, String> after = profileOf(user);
-        Map<String, Object> changes = new java.util.LinkedHashMap<>();
-        before.forEach((field, old) -> {
-            if (!java.util.Objects.equals(old, after.get(field))) {
-                Map<String, String> change = new java.util.HashMap<>();
-                change.put("de", old);
-                change.put("para", after.get(field));
-                changes.put(field, change);
-            }
-        });
-        if (!changes.isEmpty()) {
-            audit.record(user.getId(), "profile.update", "user", user.getId(), changes);
-        }
-        return UserResponses.Me.from(user);
-    }
-
-    private static Map<String, String> profileOf(User user) {
-        Map<String, String> profile = new java.util.LinkedHashMap<>();
-        profile.put("usuario", user.getUsername());
-        profile.put("nome", user.getDisplayName());
-        profile.put("bio", user.getBio());
-        profile.put("site", user.getWebsite());
-        profile.put("twitter", user.getTwitter());
-        profile.put("instagram", user.getInstagram());
-        profile.put("youtube", user.getYoutube());
-        profile.put("contorno", user.getRingStyle());
-        return profile;
-    }
-
-    private static String merged(String sent, String current) {
-        if (sent == null) {
-            return current;
-        }
-        return sent.isBlank() ? null : sent.strip();
-    }
-
-    private static String withoutAt(String handle) {
-        return handle == null ? null : handle.replaceFirst("^@", "");
+        return UserResponses.Me.from(profiles.update(current.id(), request));
     }
 }
