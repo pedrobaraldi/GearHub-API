@@ -11,5 +11,6 @@ public record AuthProperties(
         int loginLimitPerMinute,
         int registerLimitPerMinute,
         int resetLimitPerMinute,
+        int requestsPerMinute,
         List<String> allowedOrigins) {
 }

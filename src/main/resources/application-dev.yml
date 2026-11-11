@@ -10,4 +10,6 @@ gearhub:
     hmac-key: EeDjNQ+GJrga9v/sJXv9sqLV4/8yc2Vbe6fEgSHXfMY=
   auth:
     secure-cookie: false
+    # Em desenvolvimento e nos testes, tudo vem do mesmo IP: o limite geral não atrapalha
+    requests-per-minute: 100000
     allowed-origins: http://localhost:3000,http://localhost:8080

@@ -24,8 +24,9 @@ spring:
 
 server:
   port: ${PORT:8080}
-  # Atrás de proxy (Nuxt em dev, balanceador em produção)
-  forward-headers-strategy: framework
+  # Atrás de proxy (o site em Nuxt). "native": o IP do cabeçalho X-Forwarded-For só vale vindo da rede
+  # interna (o servidor do site); quem chama a API direto da internet não consegue falsificar o IP
+  forward-headers-strategy: native
   tomcat:
     # Lê uploads grandes até o fim para conseguir responder com a mensagem de erro
     max-swallow-size: 10MB
@@ -83,6 +84,8 @@ gearhub:
     login-limit-per-minute: 10
     register-limit-per-minute: 5
     reset-limit-per-minute: 5
+    # Limite geral por IP, para robôs que disparam milhares de chamadas
+    requests-per-minute: ${GEARHUB_REQUESTS_PER_MINUTE:300}
     allowed-origins: ${GEARHUB_ALLOWED_ORIGINS:}
 
 management:

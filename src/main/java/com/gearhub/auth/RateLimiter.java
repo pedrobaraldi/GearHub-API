@@ -18,12 +18,17 @@ public class RateLimiter {
             .build();
 
     public void check(String key, int limitPerMinute) {
-        Bucket bucket = buckets.get(key, ignored -> Bucket.builder()
-                .addLimit(limit -> limit.capacity(limitPerMinute).refillGreedy(limitPerMinute, Duration.ofMinutes(1)))
-                .build());
-        if (!bucket.tryConsume(1)) {
+        if (!tryConsume(key, limitPerMinute)) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Muitas tentativas. Aguarde um minuto e tente novamente.");
         }
+    }
+
+    /** Gasta uma ficha do balde; falso quando o limite do minuto acabou. */
+    public boolean tryConsume(String key, int limitPerMinute) {
+        Bucket bucket = buckets.get(key, ignored -> Bucket.builder()
+                .addLimit(limit -> limit.capacity(limitPerMinute).refillGreedy(limitPerMinute, Duration.ofMinutes(1)))
+                .build());
+        return bucket.tryConsume(1);
     }
 }

@@ -3,6 +3,8 @@ package com.gearhub.config;
 import com.gearhub.auth.AuthProperties;
 import com.gearhub.auth.OriginCheckFilter;
 import com.gearhub.auth.ProblemResponse;
+import com.gearhub.auth.RateLimiter;
+import com.gearhub.auth.RequestRateLimitFilter;
 import com.gearhub.auth.SessionAuthenticationFilter;
 import com.gearhub.auth.SessionRepository;
 import org.springframework.context.annotation.Bean;
@@ -29,7 +31,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, SessionRepository sessions, AuthProperties properties)
+    SecurityFilterChain filterChain(HttpSecurity http, SessionRepository sessions, AuthProperties properties,
+            RateLimiter rateLimiter)
             throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -39,6 +42,7 @@ public class SecurityConfig {
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, exception) -> ProblemResponse.write(
                                 response, 401, "Entre na sua conta para continuar.")))
+                .addFilterBefore(new RequestRateLimitFilter(rateLimiter, properties.requestsPerMinute()), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new OriginCheckFilter(properties), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new SessionAuthenticationFilter(sessions), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
