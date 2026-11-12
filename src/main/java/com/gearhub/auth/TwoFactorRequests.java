@@ -21,6 +21,20 @@ public final class TwoFactorRequests {
         }
     }
 
+    public record Enable(
+            @Schema(format = "password", description = "Obrigatória quando a conta tem senha")
+            @Size(max = 128, message = "Senha muito longa")
+            String password,
+            @Schema(description = "6 dígitos do app autenticador", example = "123456")
+            @NotBlank(message = "Digite o código")
+            @Size(max = 32, message = "Código inválido. Confira o app e tente de novo.")
+            String code) {
+        @Override
+        public String toString() {
+            return "Enable[]";
+        }
+    }
+
     public record Disable(
             @Schema(format = "password", description = "Obrigatória quando a conta tem senha")
             @Size(max = 128, message = "Senha muito longa")

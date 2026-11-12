@@ -41,7 +41,7 @@ public class IgdbClient {
     private static final Duration TOKEN_MARGIN = Duration.ofDays(1);
 
     private final IgdbProperties properties;
-    private final RestClient http = RestClient.create();
+    private final RestClient http = com.gearhub.config.HttpClients.withTimeouts();
 
     private String token;
     private Instant tokenExpiresAt = Instant.EPOCH;

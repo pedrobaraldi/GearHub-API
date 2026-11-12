@@ -27,7 +27,7 @@ public class GoogleAuthService {
 
     private final GoogleProperties properties;
     private final OAuthAccountService accounts;
-    private final RestClient http = RestClient.create();
+    private final RestClient http = com.gearhub.config.HttpClients.withTimeouts();
 
     public GoogleAuthService(GoogleProperties properties, OAuthAccountService accounts) {
         this.properties = properties;

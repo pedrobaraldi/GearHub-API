@@ -1,6 +1,8 @@
 package com.gearhub.users;
 
 import com.gearhub.admin.AuditService;
+import com.gearhub.auth.RateLimiter;
+import com.gearhub.reviews.ContentImageService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -26,8 +28,11 @@ public class AvatarService {
     private final Path directory;
     private final UserRepository users;
     private final AuditService audit;
+    private final RateLimiter rateLimiter;
 
-    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users, AuditService audit) {
+    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users, AuditService audit,
+            RateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
         this.directory = Path.of(uploads, "avatars").toAbsolutePath().normalize();
         this.users = users;
         this.audit = audit;
@@ -39,6 +44,7 @@ public class AvatarService {
 
     @Transactional
     public User replace(UUID userId, MultipartFile file) {
+        limit(userId);
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
         history(user, "profile.avatar", user.getAvatarUrl(), url);
@@ -48,6 +54,7 @@ public class AvatarService {
 
     @Transactional
     public User replaceBanner(UUID userId, MultipartFile file) {
+        limit(userId);
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
         history(user, "profile.banner", user.getBannerUrl(), url);
@@ -69,6 +76,11 @@ public class AvatarService {
         history(user, "profile.banner", user.getBannerUrl(), null);
         user.changeBanner(null);
         return user;
+    }
+
+    /** Nenhum arquivo é apagado: sem limite, trocar a foto em loop encheria o disco. Mesmo balde das imagens de post. */
+    private void limit(UUID userId) {
+        rateLimiter.check(ContentImageService.UPLOAD_LIMIT_KEY + userId, ContentImageService.UPLOADS_PER_MINUTE);
     }
 
     private String store(MultipartFile file) {

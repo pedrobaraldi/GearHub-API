@@ -20,7 +20,9 @@ public class ContentImageService {
 
     public static final String PUBLIC_PATH = "/uploads/content/";
 
-    private static final int UPLOADS_PER_MINUTE = 20;
+    /** Imagens por minuto por pessoa, somando posts, reviews, foto de perfil e banner. */
+    public static final int UPLOADS_PER_MINUTE = 20;
+    public static final String UPLOAD_LIMIT_KEY = "upload:";
     private static final Pattern OWN_FILE = Pattern.compile(
             Pattern.quote(PUBLIC_PATH) + "[0-9a-f-]{36}\\.(jpg|png|webp)");
 
@@ -37,7 +39,7 @@ public class ContentImageService {
     }
 
     public String store(UUID userId, MultipartFile file) {
-        rateLimiter.check("upload:" + userId, UPLOADS_PER_MINUTE);
+        rateLimiter.check(UPLOAD_LIMIT_KEY + userId, UPLOADS_PER_MINUTE);
         try {
             byte[] content = file.getBytes();
             String extension = AvatarService.detectExtension(content);

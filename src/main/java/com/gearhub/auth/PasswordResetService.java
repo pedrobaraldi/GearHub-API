@@ -35,10 +35,12 @@ public class PasswordResetService {
     private final MailService mail;
     private final MailProperties mailProperties;
     private final JdbcClient jdbc;
+    private final UnprovenAccess unproven;
 
     public PasswordResetService(UserRepository users, PasswordEncoder passwords, CryptoService crypto,
             RateLimiter rateLimiter, AuthProperties properties, TurnstileService turnstile, MailService mail,
-            MailProperties mailProperties, JdbcClient jdbc) {
+            MailProperties mailProperties, JdbcClient jdbc, UnprovenAccess unproven) {
+        this.unproven = unproven;
         this.users = users;
         this.passwords = passwords;
         this.crypto = crypto;
@@ -82,11 +84,14 @@ public class PasswordResetService {
                 .update();
 
         String link = mailProperties.siteUrl() + "/redefinir-senha?token=" + token;
+        // O nome é escrito por quem criou a conta. Sem o e-mail confirmado, pode ser outra pessoa usando o
+        // endereço da vítima para mandar um texto de golpe num e-mail de verdade do GearHub
+        String name = user.getEmailVerifiedAt() != null ? user.getDisplayName() : "tudo bem";
         String subject = "Redefina sua senha do GearHub";
         if (mailProperties.hasResetTemplate()) {
             // O nome é escrito pela própria pessoa: sem escapar, viraria HTML dentro do e-mail
             mail.sendTemplateInBackground(email, subject, mailProperties.resetTemplate(), Map.of(
-                    "NOME", HtmlUtils.htmlEscape(user.getDisplayName()),
+                    "NOME", HtmlUtils.htmlEscape(name),
                     "LINK_REDEFINIR", link,
                     "MINUTOS", String.valueOf(LINK_TTL.toMinutes())));
             return;
@@ -100,7 +105,7 @@ public class PasswordResetService {
                 %s
 
                 Se não foi você, ignore este e-mail: sua senha continua a mesma.
-                """.formatted(user.getDisplayName(), LINK_TTL.toMinutes(), link));
+                """.formatted(name, LINK_TTL.toMinutes(), link));
     }
 
     @Transactional
@@ -119,13 +124,18 @@ public class PasswordResetService {
         User user = users.findById(userId).filter(found -> found.getDeletedAt() == null)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Este link é inválido ou expirou. Peça um novo."));
+        // Abrir o link prova que a pessoa controla o e-mail. Se ele ainda não estava confirmado, o que foi
+        // criado antes (2FA, Google ou Discord ligados) pode ser de quem se cadastrou com o e-mail alheio
+        if (user.getEmailVerifiedAt() == null) {
+            unproven.revoke(user);
+        }
         user.changePassword(passwords.encode(request.password()));
-        // Abrir o link prova que a pessoa controla o e-mail
         user.markEmailVerified();
         users.saveAndFlush(user);
 
-        jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND purpose = :purpose AND used_at IS NULL")
-                .param("user", userId).param("purpose", PURPOSE).update();
+        // Todos os links pendentes da conta, de redefinição e de troca de e-mail
+        jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND used_at IS NULL")
+                .param("user", userId).update();
         // Quem estava com a sessão aberta sai: pode ser justamente quem invadiu a conta
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", userId).update();
     }

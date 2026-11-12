@@ -32,7 +32,7 @@ public class SteamClient {
     }
 
     private final MarketProperties properties;
-    private final RestClient http = RestClient.create();
+    private final RestClient http = com.gearhub.config.HttpClients.withTimeouts();
 
     public SteamClient(MarketProperties properties) {
         this.properties = properties;

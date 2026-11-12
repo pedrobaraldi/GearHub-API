@@ -258,8 +258,13 @@ class PasswordResetIntegrationTest {
         assertThat(call("PATCH", "/api/v1/users/me", "{\"displayName\":\"<b>Pessoa</b>\"}", person.auth()).statusCode())
                 .isEqualTo(200);
 
+        // E-mail ainda não confirmado: o nome pode ter sido escrito por outra pessoa, então não vai no e-mail
         askToken(person);
+        assertThat(attemptsOf(person).getLast()).contains("\"NOME\":\"tudo bem\"").doesNotContain("Pessoa");
 
+        // Confirmado, o nome vai, escapado
+        jdbc.update("UPDATE users SET email_verified_at = now() WHERE username = ?", person.username());
+        askToken(person);
         String mail = attemptsOf(person).getLast();
         assertThat(mail).contains("\"template\"", "redefinir-senha", "\"MINUTOS\":\"30\"", "&lt;b&gt;Pessoa&lt;/b&gt;")
                 .doesNotContain("<b>", "\"text\"");

@@ -68,8 +68,10 @@ public class NotificationService {
 
     /** Comentário em post ou review: avisa o dono; numa resposta, avisa também quem foi respondido. */
     @Transactional
-    public void commented(String kind, UUID contentId, UUID ownerId, UUID actorId, String body, UUID repliedUserId) {
-        Map<String, Object> data = Map.of("comment", snippet(body));
+    public void commented(String kind, UUID contentId, UUID commentId, UUID ownerId, UUID actorId, String body,
+            UUID repliedUserId) {
+        // O id permite esconder o trecho se o comentário for apagado depois
+        Map<String, Object> data = Map.of("comment", snippet(body), "commentId", commentId.toString());
         if (repliedUserId != null) {
             create(repliedUserId, actorId, "reply", kind, contentId, data, "comments");
         }
@@ -125,10 +127,14 @@ public class NotificationService {
                 SELECT n.id, n.type, n.target_kind, n.data::text AS data, n.created_at, n.read_at,
                        a.username, a.display_name, a.avatar_url, me.username AS me,
                        CASE n.target_kind
-                           WHEN 'post' THEN (SELECT body FROM posts WHERE id = n.target_id)
-                           WHEN 'review' THEN (SELECT coalesce(title, body) FROM reviews WHERE id = n.target_id)
-                           WHEN 'comment' THEN (SELECT body FROM comments WHERE id = n.target_id)
+                           WHEN 'post' THEN (SELECT body FROM posts WHERE id = n.target_id AND deleted_at IS NULL)
+                           WHEN 'review' THEN (SELECT coalesce(title, body) FROM reviews WHERE id = n.target_id AND deleted_at IS NULL)
+                           WHEN 'comment' THEN (SELECT body FROM comments WHERE id = n.target_id AND deleted_at IS NULL)
                        END AS target_text,
+                       -- Apagado é apagado: o texto do comentário deixa de aparecer também nas notificações
+                       EXISTS (SELECT 1 FROM comments c
+                               WHERE c.id = (n.data ->> 'commentId')::uuid
+                                 AND c.deleted_at IS NOT NULL) AS comment_deleted,
                        (SELECT coalesce('/games/' || g.slug || '#comunidade', '/product/' || p.slug || '?review=' || r.id)
                           FROM reviews r JOIN products p ON p.id = r.product_id
                           LEFT JOIN catalog_games g ON g.igdb_id = p.game_id
@@ -153,7 +159,8 @@ public class NotificationService {
                     String username = rs.getString("username");
                     Actor actor = username == null ? null
                             : new Actor(username, rs.getString("display_name"), rs.getString("avatar_url"));
-                    String snippet = data.get("comment") instanceof String comment ? comment : snippet(rs.getString("target_text"));
+                    String snippet = rs.getBoolean("comment_deleted") ? "Comentário apagado"
+                            : data.get("comment") instanceof String comment ? comment : snippet(rs.getString("target_text"));
                     return new Notification(rs.getLong("id"), type, actor, message(type, kind, data), snippet,
                             link(type, rs.getString("review_link"), username, rs.getString("me")),
                             rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("read_at") != null);

@@ -409,6 +409,96 @@ class ContentIntegrationTest {
                 .isGreaterThanOrEqualTo(1);
     }
 
+    /** Entra pelo Google falso e devolve o cookie de sessão. */
+    private Map<String, String> googleLogin(String subject, String email) throws Exception {
+        googleProfile = "{\"sub\":\"%s\",\"email\":\"%s\",\"email_verified\":true,\"name\":\"Pessoa\"}".formatted(subject, email);
+        String state = startGoogleLogin();
+        HttpResponse<String> back = call("GET", "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1], null,
+                Map.of("Cookie", state));
+        return Map.of("Cookie", back.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+    }
+
+    private String usernameOf(Map<String, String> session) throws Exception {
+        return call("GET", "/api/v1/auth/me", null, session).body().replaceAll(".*\"username\":\"([^\"]+)\".*", "$1");
+    }
+
+    @Test
+    void trocaDeEmailNaoPermiteSequestrarAContaFuturaDaVitima() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String victimEmail = "alvo" + id + "@gmail.com";
+        // Atacante entra com o Google dele, cria uma senha e pede para trocar o e-mail para o da vítima
+        Map<String, String> attacker = googleLogin("atacante-" + id, "atacante" + id + "@gmail.com");
+        String attackerAccount = usernameOf(attacker);
+        assertThat(call("POST", "/api/v1/me/account/password",
+                "{\"password\":\"" + PASSWORD + "\",\"passwordConfirmation\":\"" + PASSWORD + "\"}", attacker).statusCode())
+                .isEqualTo(204);
+        assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + victimEmail + "\",\"password\":\"" + PASSWORD + "\"}",
+                attacker).statusCode()).isEqualTo(202);
+
+        // Sem o link (que foi para a caixa da vítima), a conta continua com o e-mail do atacante:
+        // a vítima, ao entrar pelo Google, ganha uma conta própria, e não a do atacante
+        Map<String, String> victim = googleLogin("vitima-" + id, victimEmail);
+        assertThat(usernameOf(victim)).isNotEqualTo(attackerAccount);
+        assertThat(usernameOf(googleLogin("atacante-" + id, "atacante" + id + "@gmail.com"))).isEqualTo(attackerAccount);
+    }
+
+    @Test
+    void provarOEmailDesligaOGoogleDeQuemCriouAContaAntes() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String victimEmail = "dona" + id + "@gmail.com";
+        // Conta com o e-mail da vítima, nunca confirmado, e com o Google de outra pessoa ligado
+        // (o estado que a troca de e-mail sem confirmação permitia criar)
+        assertThat(call("POST", "/api/v1/auth/register", """
+                {"displayName":"Falso","username":"golpe%s","email":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(id, victimEmail, PASSWORD, PASSWORD), Map.of()).statusCode()).isEqualTo(201);
+        Map<String, String> attacker = googleLogin("intruso-" + id, "intruso" + id + "@gmail.com");
+        String intruderAccount = usernameOf(attacker);
+        jdbc.update("UPDATE oauth_accounts SET user_id = (SELECT id FROM users WHERE username = ?) "
+                + "WHERE user_id = (SELECT id FROM users WHERE username = ?)", "golpe" + id, intruderAccount);
+
+        // A dona entra pelo Google: só a identidade dela fica ligada
+        Map<String, String> owner = googleLogin("dona-" + id, victimEmail);
+        assertThat(usernameOf(owner)).isEqualTo("golpe" + id);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM oauth_accounts WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                """, Integer.class, "golpe" + id)).isEqualTo(1);
+        // O Google do intruso não abre mais a conta dela
+        assertThat(usernameOf(googleLogin("intruso-" + id, "intruso" + id + "@gmail.com"))).isNotEqualTo("golpe" + id);
+    }
+
+    @Test
+    void contaSoComGoogleSoCriaSenhaLogoDepoisDeEntrar() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        Map<String, String> session = googleLogin("antiga-" + id, "antiga" + id + "@gmail.com");
+        // Cookie antigo, como um roubado: criar senha, ativar 2FA e apagar a conta pedem entrar de novo
+        jdbc.update("UPDATE sessions SET created_at = now() - interval '1 hour' "
+                + "WHERE user_id = (SELECT id FROM users WHERE username = ?)", usernameOf(session));
+        HttpResponse<String> password = call("POST", "/api/v1/me/account/password",
+                "{\"password\":\"" + PASSWORD + "\",\"passwordConfirmation\":\"" + PASSWORD + "\"}", session);
+        assertThat(password.statusCode()).isEqualTo(403);
+        assertThat(password.body()).contains("entre de novo com Google ou Discord");
+        String secret = call("POST", "/api/v1/me/2fa/setup", null, session).body()
+                .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
+        assertThat(call("POST", "/api/v1/me/2fa/enable",
+                "{\"code\":\"" + com.gearhub.auth.Totp.code(secret, com.gearhub.auth.Totp.currentStep()) + "\"}", session)
+                .statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void comentarioApagadoSomeDaNotificacao() throws Exception {
+        Map<String, String> author = newUser();
+        Map<String, String> commenter = newUser();
+        String post = call("POST", "/api/v1/posts", "{\"body\":\"Post para comentar\"}", author).body()
+                .replaceAll(".*\"id\":\"([0-9a-f-]{36})\".*", "$1");
+        String comment = call("POST", "/api/v1/posts/" + post + "/comments", "{\"body\":\"Texto que vai ser apagado\"}", commenter)
+                .body().replaceAll(".*\"id\":\"([0-9a-f-]{36})\".*", "$1");
+        assertThat(call("GET", "/api/v1/me/notifications", null, author).body()).contains("Texto que vai ser apagado");
+
+        assertThat(call("DELETE", "/api/v1/comments/" + comment, null, commenter).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/me/notifications", null, author).body())
+                .doesNotContain("Texto que vai ser apagado").contains("Comentário apagado");
+    }
+
     @Test
     void googleComDuasEtapasPedeOCodigoAntesDaSessao() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);

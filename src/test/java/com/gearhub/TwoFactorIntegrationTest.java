@@ -100,7 +100,8 @@ class TwoFactorIntegrationTest {
         assertThat(setup.body()).contains("otpauth://totp/GearHub%3Ap" + id + "?secret=", "issuer=GearHub");
         String secret = setup.body().replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
 
-        HttpResponse<String> enabled = call("POST", "/api/v1/me/2fa/enable", "{\"code\":\"" + code(secret, 0) + "\"}", auth);
+        HttpResponse<String> enabled = call("POST", "/api/v1/me/2fa/enable",
+                "{\"password\":\"" + PASSWORD + "\",\"code\":\"" + code(secret, 0) + "\"}", auth);
         assertThat(enabled.statusCode()).isEqualTo(200);
         List<String> codes = List.of(enabled.body().replaceAll(".*\\[(.*)].*", "$1").replace("\"", "").split(","));
         return new Person(email, auth, secret, codes);
@@ -147,7 +148,8 @@ class TwoFactorIntegrationTest {
         String secret = call("POST", "/api/v1/me/2fa/setup", null, here).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
         assertThat(call("POST", "/api/v1/me/2fa/enable", "{\"code\":\"000000\"}", here).statusCode()).isEqualTo(400);
-        assertThat(call("POST", "/api/v1/me/2fa/enable", "{\"code\":\"" + code(secret, 0) + "\"}", here).statusCode())
+        assertThat(call("POST", "/api/v1/me/2fa/enable",
+                "{\"password\":\"" + PASSWORD + "\",\"code\":\"" + code(secret, 0) + "\"}", here).statusCode())
                 .isEqualTo(200);
 
         assertThat(call("GET", "/api/v1/auth/me", null, here).statusCode()).isEqualTo(200);

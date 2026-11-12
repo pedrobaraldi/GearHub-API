@@ -44,6 +44,9 @@ class AccountIntegrationTest {
     @Autowired
     private AccountService accounts;
 
+    @Autowired
+    private com.gearhub.crypto.CryptoService crypto;
+
     private static EmbeddedPostgres startPostgres() {
         try {
             return EmbeddedPostgres.start();
@@ -107,7 +110,7 @@ class AccountIntegrationTest {
     void resumoDaConta() throws Exception {
         Person person = newPerson();
         assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).isEqualTo(
-                "{\"email\":\"" + person.email() + "\",\"emailVerified\":false,\"hasPassword\":true,\"providers\":[],\"twoFactorEnabled\":false}");
+                "{\"email\":\"" + person.email() + "\",\"emailVerified\":false,\"hasPassword\":true,\"providers\":[],\"twoFactorEnabled\":false,\"pendingEmail\":null}");
         assertThat(call("GET", "/api/v1/me/account", null, Map.of()).statusCode()).isEqualTo(401);
     }
 
@@ -152,11 +155,85 @@ class AccountIntegrationTest {
         assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + other.email() + "\",\"password\":\"" + PASSWORD + "\"}",
                 person.auth()).body()).contains("\"email\":\"Esse e-mail já tem uma conta\"");
 
-        assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + newEmail.toUpperCase() + "\",\"password\":\"" + PASSWORD + "\"}",
-                person.auth()).statusCode()).isEqualTo(204);
-        assertThat(call("GET", "/api/v1/auth/me", null, person.auth()).body()).contains("\"email\":\"" + newEmail + "\"", "\"emailVerified\":false");
+        HttpResponse<String> requested = call("POST", "/api/v1/me/account/email",
+                "{\"email\":\"" + newEmail.toUpperCase() + "\",\"password\":\"" + PASSWORD + "\"}", person.auth());
+        assertThat(requested.statusCode()).isEqualTo(202);
+        assertThat(requested.body()).contains("Enviamos um link para o novo e-mail");
+
+        // Nada muda antes do link: o e-mail antigo continua valendo e o novo aparece como pendente
+        assertThat(call("GET", "/api/v1/auth/me", null, person.auth()).body()).contains("\"email\":\"" + person.email() + "\"");
+        assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"pendingEmail\":\"" + newEmail + "\"");
+        assertThat(login(newEmail, PASSWORD).statusCode()).isEqualTo(401);
+        assertThat(login(person.email(), PASSWORD).statusCode()).isEqualTo(200);
+
+        // O link do e-mail: o token puro só existe no e-mail, então o teste põe um conhecido no lugar
+        String token = "token-de-teste-" + UUID.randomUUID();
+        jdbc.update("""
+                UPDATE email_tokens SET token_hash = ? WHERE purpose = 'change_email' AND used_at IS NULL
+                  AND user_id = (SELECT id FROM users WHERE username = ?)
+                """, crypto.sha256(token), person.username());
+        assertThat(call("POST", "/api/v1/auth/confirm-email", "{\"token\":\"errado\"}", Map.of()).statusCode()).isEqualTo(400);
+        assertThat(call("POST", "/api/v1/auth/confirm-email", "{\"token\":\"" + token + "\"}", Map.of()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/auth/me", null, person.auth()).body())
+                .contains("\"email\":\"" + newEmail + "\"", "\"emailVerified\":true");
         assertThat(login(newEmail, PASSWORD).statusCode()).isEqualTo(200);
         assertThat(login(person.email(), PASSWORD).statusCode()).isEqualTo(401);
+        // O link vale uma vez
+        assertThat(call("POST", "/api/v1/auth/confirm-email", "{\"token\":\"" + token + "\"}", Map.of()).statusCode()).isEqualTo(400);
+    }
+
+    /** Link de redefinição com um token conhecido: o puro só existiria no e-mail. */
+    private String resetLink(Person person) {
+        String token = "reset-de-teste-" + UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO email_tokens (user_id, token_hash, purpose, expires_at)
+                SELECT id, ?, 'reset_password', now() + interval '30 minutes' FROM users WHERE username = ?
+                """, crypto.sha256(token), person.username());
+        return token;
+    }
+
+    private int reset(String token) throws Exception {
+        return call("POST", "/api/v1/auth/reset-password", """
+                {"token":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(token, NEW_PASSWORD, NEW_PASSWORD), Map.of()).statusCode();
+    }
+
+    @Test
+    void redefinirSenhaDeContaNaoConfirmadaDesligaO2faDeQuemCriou() throws Exception {
+        // Quem cadastrou o e-mail alheio ativou o 2FA: a dona, ao recuperar a conta, não fica presa nele
+        Person person = newPerson();
+        String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
+                .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
+        assertThat(call("POST", "/api/v1/me/2fa/enable",
+                "{\"password\":\"" + PASSWORD + "\",\"code\":\"" + Totp.code(secret, Totp.currentStep()) + "\"}", person.auth())
+                .statusCode()).isEqualTo(200);
+
+        assertThat(reset(resetLink(person))).isEqualTo(204);
+        assertThat(jdbc.queryForObject("SELECT two_factor_enabled_at IS NULL AND totp_secret_encrypted IS NULL "
+                + "FROM users WHERE username = ?", Boolean.class, person.username())).isTrue();
+        // Entra direto com a senha nova, sem o código de outra pessoa
+        assertThat(login(person.email(), NEW_PASSWORD).body()).doesNotContain("twoFactorRequired");
+    }
+
+    @Test
+    void trocarASenhaCancelaLinksDeRedefinicaoJaEnviados() throws Exception {
+        Person person = newPerson();
+        String token = resetLink(person);
+        assertThat(call("POST", "/api/v1/me/account/password", """
+                {"currentPassword":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(PASSWORD, NEW_PASSWORD, NEW_PASSWORD), person.auth()).statusCode()).isEqualTo(204);
+        assertThat(reset(token)).isEqualTo(400);
+    }
+
+    @Test
+    void ativar2faPedeASenha() throws Exception {
+        Person person = newPerson();
+        String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
+                .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
+        HttpResponse<String> noPassword = call("POST", "/api/v1/me/2fa/enable",
+                "{\"code\":\"" + Totp.code(secret, Totp.currentStep()) + "\"}", person.auth());
+        assertThat(noPassword.statusCode()).isEqualTo(400);
+        assertThat(noPassword.body()).contains("\"password\":\"Senha incorreta\"");
     }
 
     @Test
@@ -169,12 +246,16 @@ class AccountIntegrationTest {
         assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"providers\":[\"google\"]");
 
         jdbc.update("UPDATE users SET password_hash = NULL WHERE username = ?", person.username());
-        assertThat(call("DELETE", "/api/v1/me/account/providers/google", null, person.auth()).statusCode()).isEqualTo(409);
+        assertThat(call("POST", "/api/v1/me/account/providers/google/disconnect", "{}", person.auth()).statusCode()).isEqualTo(409);
 
         call("POST", "/api/v1/me/account/password", "{\"password\":\"" + NEW_PASSWORD + "\",\"passwordConfirmation\":\"" + NEW_PASSWORD + "\"}", person.auth());
-        assertThat(call("DELETE", "/api/v1/me/account/providers/google", null, person.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("POST", "/api/v1/me/account/providers/google/disconnect", "{\"password\":\"errada\"}", person.auth())
+                .statusCode()).isEqualTo(400);
+        assertThat(call("POST", "/api/v1/me/account/providers/google/disconnect",
+                "{\"password\":\"" + NEW_PASSWORD + "\"}", person.auth()).statusCode()).isEqualTo(204);
         assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"providers\":[]");
-        assertThat(call("DELETE", "/api/v1/me/account/providers/discord", null, person.auth()).statusCode()).isEqualTo(404);
+        assertThat(call("POST", "/api/v1/me/account/providers/discord/disconnect",
+                "{\"password\":\"" + NEW_PASSWORD + "\"}", person.auth()).statusCode()).isEqualTo(404);
     }
 
     @Test
@@ -262,7 +343,7 @@ class AccountIntegrationTest {
         String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
         HttpResponse<String> enabled = call("POST", "/api/v1/me/2fa/enable",
-                "{\"code\":\"" + Totp.code(secret, Totp.currentStep()) + "\"}", person.auth());
+                "{\"password\":\"" + PASSWORD + "\",\"code\":\"" + Totp.code(secret, Totp.currentStep()) + "\"}", person.auth());
         String recovery = enabled.body().replaceAll(".*\\[\"([a-z2-9-]+)\".*", "$1");
 
         // Insígnia "Conta protegida" com XP

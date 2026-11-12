@@ -130,7 +130,7 @@ public class InteractionService {
         // Resposta avisa quem foi respondido: a pessoa citada, ou o autor do comentário original
         UUID replied = parentId == null ? null : target.mention() != null ? target.mention()
                 : jdbc.sql("SELECT user_id FROM comments WHERE id = :id").param("id", target.root()).query(UUID.class).single();
-        notifications.commented(kindName(kind), id, owner, userId, body, replied);
+        notifications.commented(kindName(kind), id, commentId, owner, userId, body, replied);
         audit.record(userId, "comment.create", "comment", commentId,
                 Map.of("on", kindName(kind), "text", AuditService.snippet(body)));
         return commentId;

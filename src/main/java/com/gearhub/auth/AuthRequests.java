@@ -57,6 +57,7 @@ public final class AuthRequests {
     public record Register(
             @NotBlank(message = "Informe seu nome")
             @Size(max = 60, message = "Use no máximo 60 caracteres")
+            @Pattern(regexp = "[^\\p{Cntrl}]*", message = "Use uma linha só, sem quebras")
             String displayName,
 
             @NotBlank(message = "Escolha um nome de usuário")

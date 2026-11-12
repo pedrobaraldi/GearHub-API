@@ -84,7 +84,7 @@ public class AdminController {
     @Operation(summary = "Ficha de moderação: dados da conta, números e denúncias contra o perfil")
     public AdminService.UserFile user(@AuthenticationPrincipal CurrentUser current, @PathVariable String username) {
         access.require(current, FORBIDDEN);
-        return admin.userFile(username);
+        return admin.userFile(current.id(), username);
     }
 
     @GetMapping("/users/{username}/activity")
@@ -92,6 +92,6 @@ public class AdminController {
     public AuditService.Page activity(@AuthenticationPrincipal CurrentUser current, @PathVariable String username,
             @RequestParam(required = false) Instant before, @RequestParam(defaultValue = "50") int size) {
         access.require(current, FORBIDDEN);
-        return audit.activity(admin.userFile(username).id(), before, size);
+        return audit.activity(admin.userFile(current.id(), username).id(), before, size);
     }
 }

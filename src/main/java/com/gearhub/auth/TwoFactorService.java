@@ -54,10 +54,13 @@ public class TwoFactorService {
     private final AuthProperties properties;
     private final JdbcClient jdbc;
     private final AuditService audit;
+    private final Reauthentication reauth;
     private final SecureRandom random = new SecureRandom();
 
     public TwoFactorService(UserRepository users, CryptoService crypto, PasswordEncoder passwords,
-            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc, AuditService audit) {
+            RateLimiter rateLimiter, AuthProperties properties, JdbcClient jdbc, AuditService audit,
+            Reauthentication reauth) {
+        this.reauth = reauth;
         this.audit = audit;
         this.users = users;
         this.crypto = crypto;
@@ -155,10 +158,16 @@ public class TwoFactorService {
 
     /** Confirma o primeiro código, ativa e encerra as outras sessões: quem já estava dentro sem o código sai. */
     @Transactional
-    public List<String> enable(UUID userId, UUID currentSession, String code) {
+    public List<String> enable(UUID userId, UUID currentSession, String password, String code) {
         rateLimiter.check("2fa-manage:" + userId, ATTEMPTS_PER_MINUTE);
         if (isEnabled(userId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A verificação em duas etapas já está ativa.");
+        }
+        // Quem ativa fica com o segredo e os códigos: com uma sessão roubada, trancaria a dona para fora
+        User user = users.findById(userId).orElseThrow();
+        reauth.requireRecentLogin(user, currentSession);
+        if (user.getPasswordHash() != null && !reauth.passwordMatches(user, password)) {
+            throw new FieldValidationException(Map.of("password", "Senha incorreta"));
         }
         if (secretOf(userId) == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comece a configuração de novo.");

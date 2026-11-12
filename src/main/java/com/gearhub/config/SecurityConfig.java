@@ -50,7 +50,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
-                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/2fa/verify").permitAll()
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/2fa/verify",
+                                "/api/v1/auth/confirm-email").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/google/**", "/api/v1/auth/discord/**", "/api/v1/auth/errors/*").permitAll()
                         // Todo o conteúdo exige conta, como X e Instagram: feed, perfis, produtos e até as fotos
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**", "/api/v1/feed", "/api/v1/products", "/api/v1/post-topics",
