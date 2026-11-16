@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
@@ -93,6 +94,79 @@ class ReportAdminIntegrationTest {
     private HttpResponse<String> report(Person reporter, String kind, String id, String reason) throws Exception {
         return call("POST", "/api/v1/reports", "{\"kind\":\"" + kind + "\",\"id\":\"" + id + "\",\"reason\":\"" + reason
                 + "\",\"details\":\"Propaganda de site estranho\"}", reporter.auth());
+    }
+
+    private HttpResponse<String> register(String username) throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        return call("POST", "/api/v1/auth/register", """
+                {"displayName":"Pessoa","username":"%s","email":"r%s@exemplo.com","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(username, id, PASSWORD, PASSWORD), Map.of());
+    }
+
+    private HttpResponse<String> rename(Person person, String username) throws Exception {
+        return call("PATCH", "/api/v1/users/me", "{\"username\":\"" + username + "\"}", person.auth());
+    }
+
+    @Test
+    void arrobaAntigoFicaGuardadoPorQuinzeDias() throws Exception {
+        Person owner = newPerson();
+        Person other = newPerson();
+        String old = owner.username();
+        String temporary = "n" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        assertThat(rename(owner, temporary).statusCode()).isEqualTo(200);
+
+        // Outra pessoa não pega o @ largado há pouco, nem no cadastro
+        HttpResponse<String> taken = rename(other, old);
+        assertThat(taken.statusCode()).isEqualTo(409);
+        assertThat(taken.body()).contains("fica guardado por alguns dias");
+        assertThat(register(old).statusCode()).isEqualTo(409);
+
+        // A dona volta para ele quando quiser dentro do prazo
+        assertThat(rename(owner, old).statusCode()).isEqualTo(200);
+        assertThat(rename(owner, temporary).statusCode()).isEqualTo(200);
+
+        // Passados os 15 dias, o @ fica livre
+        jdbc.update("UPDATE username_history SET held_until = now() - interval '1 day' WHERE username = ?", old);
+        assertThat(rename(other, old).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void nomesReservadosNinguemPega() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        // Exato, começo e "contém"
+        for (String name : List.of("suporte", "admin" + id, "fa" + id + "gearhub")) {
+            HttpResponse<String> response = register(name);
+            assertThat(response.statusCode()).as(name).isEqualTo(409);
+            assertThat(response.body()).contains("reservado");
+        }
+        assertThat(rename(newPerson(), "moderador" + id).statusCode()).isEqualTo(409);
+        // Palavra parecida, mas não reservada, passa
+        assertThat(register("badminton" + id).statusCode()).isEqualTo(201);
+    }
+
+    @Test
+    void painelReservaEEntregaNomesAContasOficiais() throws Exception {
+        Person admin = admin();
+        Person official = newPerson();
+        String name = "loja" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+
+        assertThat(call("POST", "/api/v1/admin/reserved-usernames", "{\"pattern\":\"" + name + "\",\"reason\":\"Parceiro\"}",
+                newPerson().auth()).statusCode()).isEqualTo(403);
+        assertThat(call("POST", "/api/v1/admin/reserved-usernames", "{\"pattern\":\"" + name + "\",\"reason\":\"Parceiro\"}",
+                admin.auth()).statusCode()).isEqualTo(201);
+        assertThat(register(name).statusCode()).isEqualTo(409);
+        assertThat(call("GET", "/api/v1/admin/reserved-usernames", null, admin.auth()).body()).contains("\"pattern\":\"" + name + "\"");
+
+        // Entregue à conta oficial: o @ dela passa a ser o nome reservado
+        assertThat(call("POST", "/api/v1/admin/reserved-usernames/" + name + "/assign",
+                "{\"username\":\"" + official.username() + "\"}", admin.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/auth/me", null, official.auth()).body()).contains("\"username\":\"" + name + "\"");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE action = 'admin.username_assign'", Integer.class))
+                .isGreaterThanOrEqualTo(1);
+
+        // Tirar a reserva não apaga o registro
+        assertThat(call("POST", "/api/v1/admin/reserved-usernames/" + name + "/release", null, admin.auth()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/admin/reserved-usernames?all=true", null, admin.auth()).body()).contains("\"pattern\":\"" + name + "\"");
     }
 
     @Test

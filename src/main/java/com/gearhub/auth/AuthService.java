@@ -41,11 +41,14 @@ public class AuthService {
     private final TwoFactorService twoFactor;
     private final AccountService accounts;
     private final AuditService audit;
+    private final com.gearhub.users.UsernamePolicy usernames;
     private final String dummyHash;
 
     public AuthService(UserRepository users, SessionRepository sessions, PasswordEncoder passwords,
             CryptoService crypto, RateLimiter rateLimiter, AuthProperties properties,
-            TurnstileService turnstile, TwoFactorService twoFactor, AccountService accounts, AuditService audit) {
+            TurnstileService turnstile, TwoFactorService twoFactor, AccountService accounts, AuditService audit,
+            com.gearhub.users.UsernamePolicy usernames) {
+        this.usernames = usernames;
         this.audit = audit;
         this.users = users;
         this.sessions = sessions;
@@ -66,9 +69,8 @@ public class AuthService {
 
         String email = normalizeEmail(request.email());
         String emailHash = crypto.blindIndex(email);
-        if (users.existsByUsername(request.username())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse nome de usuário já está em uso");
-        }
+        // Único, sem nomes reservados e sem @ que outra pessoa largou há menos de 15 dias
+        usernames.require(request.username(), null);
         if (users.existsByEmailHash(emailHash)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse e-mail já tem uma conta");
         }

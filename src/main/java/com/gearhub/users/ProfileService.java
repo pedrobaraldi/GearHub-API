@@ -20,9 +20,11 @@ public class ProfileService {
     private final FollowService follows;
     private final BadgeService badges;
     private final AuditService audit;
+    private final UsernamePolicy usernames;
 
     public ProfileService(UserRepository users, RingStyleService ringStyles, FollowService follows, BadgeService badges,
-            AuditService audit) {
+            AuditService audit, UsernamePolicy usernames) {
+        this.usernames = usernames;
         this.users = users;
         this.ringStyles = ringStyles;
         this.follows = follows;
@@ -44,9 +46,9 @@ public class ProfileService {
         User user = users.findById(userId).orElseThrow();
         Map<String, String> before = snapshot(user);
         if (request.username() != null && !request.username().equals(user.getUsername())) {
-            if (users.existsByUsername(request.username())) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse nome de usuário já está em uso");
-            }
+            usernames.require(request.username(), userId);
+            // O @ antigo fica guardado para ela por 15 dias: links e menções antigas não levam logo a outra pessoa
+            usernames.recordChange(userId, user.getUsername());
             user.changeUsername(request.username());
         }
         String displayName = request.displayName() == null ? user.getDisplayName() : request.displayName().strip();

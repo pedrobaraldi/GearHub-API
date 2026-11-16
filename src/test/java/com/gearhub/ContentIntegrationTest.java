@@ -485,6 +485,13 @@ class ContentIntegrationTest {
     }
 
     @Test
+    void loginSocialNaoGeraArrobaReservado() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String username = usernameOf(googleLogin("marca-" + id, "gearhub" + id + "@gmail.com"));
+        assertThat(username).doesNotContain("gearhub").matches("[a-z0-9]{3,30}");
+    }
+
+    @Test
     void comentarioApagadoSomeDaNotificacao() throws Exception {
         Map<String, String> author = newUser();
         Map<String, String> commenter = newUser();
