@@ -24,8 +24,12 @@ public class UnprovenAccess {
         this.audit = audit;
     }
 
-    /** Só para conta com e-mail ainda não confirmado; quem chama confere isso. */
-    public void revoke(User user) {
+    /**
+     * Só para conta com e-mail ainda não confirmado; quem chama confere isso. {@code removeSecondFactor} é falso
+     * na redefinição de senha: ter acesso à caixa de e-mail não pode bastar para tirar o 2FA (e uma conta sem
+     * e-mail confirmado não consegue mais ativar 2FA, então o 2FA que existe é da dona).
+     */
+    public void revoke(User user, boolean removeSecondFactor) {
         boolean hadPassword = user.getPasswordHash() != null;
         if (hadPassword) {
             user.changePassword(null);
@@ -35,7 +39,7 @@ public class UnprovenAccess {
         int providers = jdbc.sql("DELETE FROM oauth_accounts WHERE user_id = :user").param("user", user.getId()).update();
         jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND used_at IS NULL")
                 .param("user", user.getId()).update();
-        int twoFactor = jdbc.sql("""
+        int twoFactor = !removeSecondFactor ? 0 : jdbc.sql("""
                 UPDATE users SET totp_secret_encrypted = NULL, two_factor_enabled_at = NULL, totp_last_step = NULL
                 WHERE id = :user AND totp_secret_encrypted IS NOT NULL
                 """).param("user", user.getId()).update();

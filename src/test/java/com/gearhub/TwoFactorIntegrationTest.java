@@ -94,6 +94,8 @@ class TwoFactorIntegrationTest {
                 """.formatted(id, email, PASSWORD, PASSWORD), Map.of());
         assertThat(created.statusCode()).isEqualTo(201);
         Map<String, String> auth = Map.of("Cookie", cookie(created, "gearhub_session"));
+        // 2FA só com o e-mail confirmado
+        jdbc.update("UPDATE users SET email_verified_at = now() WHERE username = ?", "p" + id);
 
         HttpResponse<String> setup = call("POST", "/api/v1/me/2fa/setup", null, auth);
         assertThat(setup.statusCode()).isEqualTo(200);
@@ -144,6 +146,7 @@ class TwoFactorIntegrationTest {
                 """.formatted(id, email, PASSWORD, PASSWORD), Map.of());
         Map<String, String> here = Map.of("Cookie", cookie(created, "gearhub_session"));
         Map<String, String> elsewhere = Map.of("Cookie", cookie(login(email), "gearhub_session"));
+        jdbc.update("UPDATE users SET email_verified_at = now() WHERE username = ?", "p" + id);
 
         String secret = call("POST", "/api/v1/me/2fa/setup", null, here).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");

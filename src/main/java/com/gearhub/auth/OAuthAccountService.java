@@ -53,7 +53,7 @@ public class OAuthAccountService {
         String emailHash = crypto.blindIndex(email);
         Optional<User> existing = users.findByEmailHash(emailHash)
                 .filter(found -> found.getDeletedAt() == null || found.isRestorable());
-        existing.filter(found -> found.getEmailVerifiedAt() == null).ifPresent(unproven::revoke);
+        existing.filter(found -> found.getEmailVerifiedAt() == null).ifPresent(found -> unproven.revoke(found, true));
         User user = existing.orElseGet(() -> createUser(profile.name(), email, emailHash));
         user.markEmailVerified();
 

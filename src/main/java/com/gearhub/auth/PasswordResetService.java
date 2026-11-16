@@ -124,10 +124,11 @@ public class PasswordResetService {
         User user = users.findById(userId).filter(found -> found.getDeletedAt() == null)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Este link é inválido ou expirou. Peça um novo."));
-        // Abrir o link prova que a pessoa controla o e-mail. Se ele ainda não estava confirmado, o que foi
-        // criado antes (2FA, Google ou Discord ligados) pode ser de quem se cadastrou com o e-mail alheio
+        // Abrir o link prova que a pessoa controla o e-mail. Se ele ainda não estava confirmado, logins
+        // criados antes (Google ou Discord ligados, sessões) podem ser de quem se cadastrou com o e-mail alheio.
+        // O 2FA fica: só o e-mail não pode bastar para tirá-lo, e o 2FA só se ativa com e-mail confirmado
         if (user.getEmailVerifiedAt() == null) {
-            unproven.revoke(user);
+            unproven.revoke(user, false);
         }
         user.changePassword(passwords.encode(request.password()));
         user.markEmailVerified();

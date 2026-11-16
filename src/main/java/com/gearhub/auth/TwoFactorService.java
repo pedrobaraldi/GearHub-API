@@ -145,6 +145,7 @@ public class TwoFactorService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A verificação em duas etapas já está ativa.");
         }
         User user = users.findById(userId).orElseThrow();
+        requireVerifiedEmail(user);
         String secret = Totp.newSecret();
         jdbc.sql("""
                 UPDATE users SET totp_secret_encrypted = :secret, totp_last_step = NULL, two_factor_enabled_at = NULL
@@ -165,6 +166,7 @@ public class TwoFactorService {
         }
         // Quem ativa fica com o segredo e os códigos: com uma sessão roubada, trancaria a dona para fora
         User user = users.findById(userId).orElseThrow();
+        requireVerifiedEmail(user);
         reauth.requireRecentLogin(user, currentSession);
         if (user.getPasswordHash() != null && !reauth.passwordMatches(user, password)) {
             throw new FieldValidationException(Map.of("password", "Senha incorreta"));
@@ -180,6 +182,9 @@ public class TwoFactorService {
         audit.record(userId, "2fa.enable");
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user AND id <> :current")
                 .param("user", userId).param("current", currentSession).update();
+        // Um pedido de troca de e-mail feito por quem acabou de ser expulso deixa de valer
+        jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND purpose = 'change_email' AND used_at IS NULL")
+                .param("user", userId).update();
         return newRecoveryCodes(userId);
     }
 
@@ -213,6 +218,17 @@ public class TwoFactorService {
         jdbc.sql("DELETE FROM two_factor_recovery_codes WHERE user_id = :user").param("user", userId).update();
         setProtectedBadge(userId, false);
         audit.record(userId, "2fa.disable");
+    }
+
+    /**
+     * 2FA só com e-mail confirmado. Sem isso, quem se cadastrasse com o e-mail de outra pessoa ativaria um 2FA
+     * que só ele tem, e a dona, ao recuperar a conta pelo e-mail, ficaria presa nele.
+     */
+    private static void requireVerifiedEmail(User user) {
+        if (user.getEmailVerifiedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Confirme seu e-mail antes de ativar a verificação em duas etapas. Peça um novo link em Configurações, na seção Conta.");
+        }
     }
 
     /** Insígnia "Conta protegida" (com XP) acompanha a verificação: entra ao ativar, sai ao desativar. */

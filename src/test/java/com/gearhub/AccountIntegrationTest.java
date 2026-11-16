@@ -198,21 +198,83 @@ class AccountIntegrationTest {
                 """.formatted(token, NEW_PASSWORD, NEW_PASSWORD), Map.of()).statusCode();
     }
 
-    @Test
-    void redefinirSenhaDeContaNaoConfirmadaDesligaO2faDeQuemCriou() throws Exception {
-        // Quem cadastrou o e-mail alheio ativou o 2FA: a dona, ao recuperar a conta, não fica presa nele
-        Person person = newPerson();
+    /** O link de confirmação do cadastro, como se a pessoa tivesse aberto o e-mail. */
+    private void verifyEmail(Person person) {
+        jdbc.update("UPDATE users SET email_verified_at = now() WHERE username = ?", person.username());
+    }
+
+    private String enable2fa(Person person) throws Exception {
         String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
         assertThat(call("POST", "/api/v1/me/2fa/enable",
                 "{\"password\":\"" + PASSWORD + "\",\"code\":\"" + Totp.code(secret, Totp.currentStep()) + "\"}", person.auth())
                 .statusCode()).isEqualTo(200);
+        return secret;
+    }
+
+    @Test
+    void cadastroEnviaLinkDeConfirmacaoDoEmail() throws Exception {
+        Person person = newPerson();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM email_tokens WHERE purpose = 'verify_email' AND used_at IS NULL
+                  AND user_id = (SELECT id FROM users WHERE username = ?)
+                """, Integer.class, person.username())).isEqualTo(1);
+        // Pedir de novo troca o link: o antigo deixa de valer
+        assertThat(call("POST", "/api/v1/me/account/verify-email", null, person.auth()).statusCode()).isEqualTo(202);
+        String token = "verificar-" + UUID.randomUUID();
+        jdbc.update("""
+                UPDATE email_tokens SET token_hash = ? WHERE purpose = 'verify_email' AND used_at IS NULL
+                  AND user_id = (SELECT id FROM users WHERE username = ?)
+                """, crypto.sha256(token), person.username());
+
+        assertThat(call("POST", "/api/v1/auth/confirm-email", "{\"token\":\"" + token + "\"}", Map.of()).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/auth/me", null, person.auth()).body()).contains("\"emailVerified\":true");
+        assertThat(call("POST", "/api/v1/auth/confirm-email", "{\"token\":\"" + token + "\"}", Map.of()).statusCode()).isEqualTo(400);
+        assertThat(call("POST", "/api/v1/me/account/verify-email", null, person.auth()).statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void ativar2faExigeEmailConfirmado() throws Exception {
+        // Sem isso, quem cadastrasse o e-mail de outra pessoa ativaria um 2FA que só ele tem
+        Person person = newPerson();
+        HttpResponse<String> setup = call("POST", "/api/v1/me/2fa/setup", null, person.auth());
+        assertThat(setup.statusCode()).isEqualTo(403);
+        assertThat(setup.body()).contains("Confirme seu e-mail");
+    }
+
+    @Test
+    void redefinirSenhaNaoTiraO2fa() throws Exception {
+        // Quem só tem acesso à caixa de e-mail redefine a senha, mas continua precisando do código
+        Person person = newPerson();
+        verifyEmail(person);
+        enable2fa(person);
+        // Conta antiga, de antes da confirmação de e-mail existir: e-mail não confirmado com 2FA ativo
+        jdbc.update("UPDATE users SET email_verified_at = NULL WHERE username = ?", person.username());
 
         assertThat(reset(resetLink(person))).isEqualTo(204);
-        assertThat(jdbc.queryForObject("SELECT two_factor_enabled_at IS NULL AND totp_secret_encrypted IS NULL "
-                + "FROM users WHERE username = ?", Boolean.class, person.username())).isTrue();
-        // Entra direto com a senha nova, sem o código de outra pessoa
-        assertThat(login(person.email(), NEW_PASSWORD).body()).doesNotContain("twoFactorRequired");
+        assertThat(jdbc.queryForObject("SELECT two_factor_enabled_at IS NOT NULL FROM users WHERE username = ?",
+                Boolean.class, person.username())).isTrue();
+        assertThat(login(person.email(), NEW_PASSWORD).body()).contains("twoFactorRequired");
+    }
+
+    @Test
+    void encerrarSessaoOuAtivar2faCancelaPedidoDeTrocaDeEmail() throws Exception {
+        Person person = newPerson();
+        verifyEmail(person);
+        String newEmail = "pedido-" + person.email();
+        assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + newEmail + "\",\"password\":\"" + PASSWORD + "\"}",
+                person.auth()).statusCode()).isEqualTo(202);
+        assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"pendingEmail\":\"" + newEmail + "\"");
+
+        // A dona expulsa quem pediu: o link dele deixa de valer
+        call("POST", "/api/v1/me/sessions/sign-out-others", null, person.auth());
+        assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"pendingEmail\":null");
+
+        // O mesmo ao ativar o 2FA
+        assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + newEmail + "\",\"password\":\"" + PASSWORD + "\"}",
+                person.auth()).statusCode()).isEqualTo(202);
+        enable2fa(person);
+        assertThat(call("GET", "/api/v1/me/account", null, person.auth()).body()).contains("\"pendingEmail\":null");
     }
 
     @Test
@@ -228,6 +290,7 @@ class AccountIntegrationTest {
     @Test
     void ativar2faPedeASenha() throws Exception {
         Person person = newPerson();
+        verifyEmail(person);
         String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
         HttpResponse<String> noPassword = call("POST", "/api/v1/me/2fa/enable",
@@ -340,6 +403,7 @@ class AccountIntegrationTest {
     @Test
     void acoesSensiveisPedemOCodigoComDuasEtapasEDaoAInsignia() throws Exception {
         Person person = newPerson();
+        verifyEmail(person);
         String secret = call("POST", "/api/v1/me/2fa/setup", null, person.auth()).body()
                 .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
         HttpResponse<String> enabled = call("POST", "/api/v1/me/2fa/enable",

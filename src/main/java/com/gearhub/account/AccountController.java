@@ -69,6 +69,15 @@ public class AccountController {
         return Map.of("detail", "Enviamos um link para o novo e-mail. A troca vale quando você abrir o link.");
     }
 
+    @PostMapping("/account/verify-email")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "Envia de novo o link de confirmação do e-mail do cadastro")
+    @ApiResponse(responseCode = "409", description = "O e-mail já está confirmado")
+    public Map<String, String> resendVerification(@AuthenticationPrincipal CurrentUser current) {
+        accounts.resendEmailVerification(current.id());
+        return Map.of("detail", "Enviamos um link de confirmação para o seu e-mail.");
+    }
+
     @PostMapping("/account/providers/{provider}/disconnect")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Desliga o login com Google ou Discord, desde que sobre outro jeito de entrar. Pede a senha e, com 2FA, o código")

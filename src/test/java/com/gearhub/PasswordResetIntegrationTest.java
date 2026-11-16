@@ -133,7 +133,16 @@ class PasswordResetIntegrationTest {
                 {"displayName":"Pessoa","username":"p%s","email":"%s@exemplo.com","password":"%s","passwordConfirmation":"%s"}
                 """.formatted(id, id, PASSWORD, PASSWORD), Map.of());
         assertThat(response.statusCode()).isEqualTo(201);
+        // O cadastro manda o e-mail de confirmação em segundo plano: espera chegar, para não se misturar ao teste
+        for (int i = 0; i < 100 && MAILS.stream().noneMatch(mail -> mail.contains(id + "@exemplo.com") && mail.contains("confirmar-email")); i++) {
+            Thread.sleep(Duration.ofMillis(30));
+        }
         return new Person("p" + id, Map.of("Cookie", response.headers().firstValue("set-cookie").orElseThrow().split(";")[0]));
+    }
+
+    /** Só os e-mails de redefinição de senha da pessoa. */
+    private List<String> resetMails(Person person) {
+        return MAILS.stream().filter(mail -> mail.contains(emailOf(person)) && mail.contains("redefinir-senha")).toList();
     }
 
     private String emailOf(Person person) {
@@ -147,7 +156,7 @@ class PasswordResetIntegrationTest {
     /** O envio é em segundo plano: espera o e-mail da pessoa chegar. */
     private String tokenFromMail(Person person, int mailsBefore) throws Exception {
         for (int i = 0; i < 100; i++) {
-            List<String> found = MAILS.stream().filter(mail -> mail.contains(emailOf(person))).toList();
+            List<String> found = resetMails(person);
             if (found.size() > mailsBefore) {
                 return found.getLast().replaceAll(".*redefinir-senha\\?token=([A-Za-z0-9_-]+).*", "$1");
             }
@@ -157,7 +166,7 @@ class PasswordResetIntegrationTest {
     }
 
     private String askToken(Person person) throws Exception {
-        int before = (int) MAILS.stream().filter(mail -> mail.contains(emailOf(person))).count();
+        int before = resetMails(person).size();
         assertThat(forgot(emailOf(person)).statusCode()).isEqualTo(200);
         return tokenFromMail(person, before);
     }
@@ -249,7 +258,9 @@ class PasswordResetIntegrationTest {
     }
 
     private List<String> attemptsOf(Person person) {
-        return ATTEMPTS.stream().filter(attempt -> attempt.contains(emailOf(person))).toList();
+        // Só os de redefinição: o cadastro também manda o e-mail de confirmação
+        return ATTEMPTS.stream().filter(attempt -> attempt.contains(emailOf(person)) && attempt.contains("redefinir-senha"))
+                .toList();
     }
 
     @Test

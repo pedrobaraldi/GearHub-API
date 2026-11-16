@@ -81,6 +81,8 @@ public class AuthService {
             // Dois cadastros iguais ao mesmo tempo: o índice único do banco decide
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse e-mail ou nome de usuário já está em uso");
         }
+        // O link de confirmação vai junto: sem ele, a conta não ativa o 2FA
+        accounts.sendEmailVerification(user);
         return new AuthResult(user, openSession(user, ip, userAgent), null);
     }
 

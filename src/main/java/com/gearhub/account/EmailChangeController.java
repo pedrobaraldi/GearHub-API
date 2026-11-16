@@ -25,10 +25,10 @@ public class EmailChangeController {
 
     @PostMapping("/confirm-email")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Confirma a troca de e-mail com o token do link enviado ao endereço novo")
+    @Operation(summary = "Confirma o e-mail do cadastro, ou a troca para o endereço novo, com o token do link enviado por e-mail")
     @ApiResponse(responseCode = "400", description = "Link inválido, já usado ou expirado")
     @ApiResponse(responseCode = "409", description = "O e-mail passou a ter outra conta nesse meio-tempo")
     public void confirm(@Valid @RequestBody AccountRequests.ConfirmEmail body) {
-        accounts.confirmEmailChange(body.token());
+        accounts.confirmEmail(body.token());
     }
 }

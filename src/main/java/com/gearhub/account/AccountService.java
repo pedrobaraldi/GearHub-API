@@ -39,6 +39,8 @@ public class AccountService {
     private static final int ATTEMPTS_PER_MINUTE = 5;
     private static final String CHANGE_EMAIL = "change_email";
     private static final Duration CHANGE_EMAIL_TTL = Duration.ofHours(24);
+    private static final String VERIFY_EMAIL = "verify_email";
+    private static final Duration VERIFY_EMAIL_TTL = Duration.ofHours(48);
     private static final String INVALID_LINK = "Este link é inválido ou expirou. Peça a troca de novo.";
 
     @Schema(description = "Resumo da conta para a tela de Configurações")
@@ -161,23 +163,87 @@ public class AccountService {
 
                 Se não foi você, ignore este e-mail: nada muda na conta.
                 """.formatted(user.getUsername(), CHANGE_EMAIL_TTL.toHours(), link));
+        // O endereço atual fica sabendo: se não foi a dona, ela troca a senha (o que cancela o link)
+        mail.sendInBackground(user.getEmail(), "Pediram para trocar o e-mail da sua conta no GearHub", """
+                Olá.
+
+                Pediram para trocar o e-mail da conta @%s do GearHub por outro endereço.
+                A troca só vale se alguém abrir o link enviado ao endereço novo.
+
+                Se não foi você, troque sua senha agora: isso cancela o pedido.
+                """.formatted(user.getUsername()));
         audit.record(userId, "account.email_requested");
     }
 
-    /** Link do e-mail aberto: agora sim o e-mail troca, já confirmado. */
+    /**
+     * Confirmação do cadastro: o 2FA só pode ser ativado com o e-mail confirmado. Sem isso, quem se cadastrasse
+     * com o e-mail de outra pessoa poderia ativar um 2FA que só ele tem. Sem o nome no texto: o e-mail é todo nosso.
+     */
     @Transactional
-    public void confirmEmailChange(String token) {
+    public void sendEmailVerification(User user) {
+        if (user.getEmailVerifiedAt() != null) {
+            return;
+        }
+        jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND purpose = :purpose AND used_at IS NULL")
+                .param("user", user.getId()).param("purpose", VERIFY_EMAIL).update();
+        String token = crypto.newToken();
+        jdbc.sql("""
+                INSERT INTO email_tokens (user_id, token_hash, purpose, expires_at)
+                VALUES (:user, :hash, :purpose, :expires)
+                """)
+                .param("user", user.getId())
+                .param("hash", crypto.sha256(token))
+                .param("purpose", VERIFY_EMAIL)
+                .param("expires", Timestamp.from(Instant.now().plus(VERIFY_EMAIL_TTL)))
+                .update();
+        String link = mailProperties.siteUrl() + "/confirmar-email?token=" + token;
+        mail.sendInBackground(user.getEmail(), "Confirme seu e-mail no GearHub", """
+                Olá.
+
+                Este endereço foi usado para criar a conta @%s no GearHub.
+                Para confirmar, abra este link em até %d horas:
+
+                %s
+
+                Se não foi você, ignore este e-mail.
+                """.formatted(user.getUsername(), VERIFY_EMAIL_TTL.toHours(), link));
+    }
+
+    /** Novo link de confirmação, pedido nas Configurações. */
+    @Transactional
+    public void resendEmailVerification(UUID userId) {
+        User user = limited(userId);
+        if (user.getEmailVerifiedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Seu e-mail já está confirmado.");
+        }
+        sendEmailVerification(user);
+    }
+
+    /**
+     * Link aberto: confirma o e-mail do cadastro, ou troca para o e-mail novo (já confirmado).
+     * Quem tem o link provou que recebe e-mails no endereço.
+     */
+    @Transactional
+    public void confirmEmail(String token) {
         Map<String, Object> pending = jdbc.sql("""
-                SELECT user_id, new_email_encrypted, new_email_hash FROM email_tokens
-                WHERE token_hash = :hash AND purpose = :purpose AND used_at IS NULL AND expires_at > now()
+                SELECT id, user_id, purpose, new_email_encrypted, new_email_hash FROM email_tokens
+                WHERE token_hash = :hash AND purpose IN (:purposes) AND used_at IS NULL AND expires_at > now()
                 FOR UPDATE
                 """)
-                .param("hash", crypto.sha256(token == null ? "" : token)).param("purpose", CHANGE_EMAIL)
+                .param("hash", crypto.sha256(token == null ? "" : token))
+                .param("purposes", List.of(CHANGE_EMAIL, VERIFY_EMAIL))
                 .query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_LINK));
         UUID userId = (UUID) pending.get("user_id");
         User user = users.findById(userId).filter(found -> found.getDeletedAt() == null)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_LINK));
+        if (VERIFY_EMAIL.equals(pending.get("purpose"))) {
+            user.markEmailVerified();
+            users.saveAndFlush(user);
+            jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE id = :id").param("id", pending.get("id")).update();
+            audit.record(userId, "account.email_verified");
+            return;
+        }
         String emailHash = (String) pending.get("new_email_hash");
         if (users.findByEmailHash(emailHash).filter(other -> !other.getId().equals(userId)).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Esse e-mail passou a ter outra conta. Escolha outro.");
@@ -193,6 +259,15 @@ public class AccountService {
         // Os links pendentes valiam para o endereço antigo
         cancelEmailLinks(userId);
         audit.record(userId, "account.email", "user", userId, Map.of("de", maskEmail(before)));
+    }
+
+    /**
+     * Quem pediu a troca de e-mail pode ter sido um invasor que a dona acabou de expulsar (encerrando a sessão
+     * dele ou ativando o 2FA). O link dele não pode continuar valendo depois disso.
+     */
+    private void cancelPendingEmailChange(UUID userId) {
+        jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND purpose = :purpose AND used_at IS NULL")
+                .param("user", userId).param("purpose", CHANGE_EMAIL).update();
     }
 
     private void cancelEmailLinks(UUID userId) {
@@ -260,12 +335,15 @@ public class AccountService {
         if (removed == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Sessão não encontrada");
         }
+        cancelPendingEmailChange(userId);
     }
 
     @Transactional
     public int signOutOthers(UUID userId, UUID currentSession) {
-        return jdbc.sql("DELETE FROM sessions WHERE user_id = :user AND id <> :current")
+        int closed = jdbc.sql("DELETE FROM sessions WHERE user_id = :user AND id <> :current")
                 .param("user", userId).param("current", currentSession).update();
+        cancelPendingEmailChange(userId);
+        return closed;
     }
 
     private String decrypt(String value) {
