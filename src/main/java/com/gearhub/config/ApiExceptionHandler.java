@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -65,8 +66,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE,
-                "A imagem deve ter no máximo 2 MB.");
+                "O arquivo é grande demais: imagens até 2 MB e documentos até 5 MB.");
         return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
+    /**
+     * Duas requisições ao mesmo tempo gravando o mesmo valor único (nome de usuário, curtida, review do mesmo
+     * produto): a segunda perde para a regra do banco. É conflito do pedido, não erro do servidor.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail conflict(DataIntegrityViolationException ex) {
+        log.warn("Conflito de dados: {}", ex.getMostSpecificCause().getClass().getSimpleName());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "Isso acabou de mudar. Atualize a página e tente de novo.");
     }
 
     @ExceptionHandler(Exception.class)

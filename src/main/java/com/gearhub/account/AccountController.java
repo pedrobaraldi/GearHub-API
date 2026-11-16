@@ -60,20 +60,31 @@ public class AccountController {
     }
 
     @PostMapping("/account/email")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Troca o e-mail. Pede a senha e, com 2FA ativa, o código do app")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "Pede a troca do e-mail: só vale depois do link enviado ao endereço novo. Pede a senha e, com 2FA ativa, o código do app")
     @ApiResponse(responseCode = "400", description = "E-mail em uso, senha ou código inválidos")
-    public void changeEmail(@AuthenticationPrincipal CurrentUser current,
+    public Map<String, String> changeEmail(@AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody AccountRequests.ChangeEmail body) {
-        accounts.changeEmail(current.id(), body);
+        accounts.requestEmailChange(current.id(), current.sessionId(), body);
+        return Map.of("detail", "Enviamos um link para o novo e-mail. A troca vale quando você abrir o link.");
     }
 
-    @DeleteMapping("/account/providers/{provider}")
+    @PostMapping("/account/verify-email")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(summary = "Envia de novo o link de confirmação do e-mail do cadastro")
+    @ApiResponse(responseCode = "409", description = "O e-mail já está confirmado")
+    public Map<String, String> resendVerification(@AuthenticationPrincipal CurrentUser current) {
+        accounts.resendEmailVerification(current.id());
+        return Map.of("detail", "Enviamos um link de confirmação para o seu e-mail.");
+    }
+
+    @PostMapping("/account/providers/{provider}/disconnect")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Desliga o login com Google ou Discord, desde que sobre outro jeito de entrar")
+    @Operation(summary = "Desliga o login com Google ou Discord, desde que sobre outro jeito de entrar. Pede a senha e, com 2FA, o código")
     @ApiResponse(responseCode = "409", description = "Seria o único jeito de entrar: crie uma senha antes")
-    public void disconnect(@AuthenticationPrincipal CurrentUser current, @PathVariable String provider) {
-        accounts.disconnect(current.id(), provider);
+    public void disconnect(@AuthenticationPrincipal CurrentUser current, @PathVariable String provider,
+            @Valid @RequestBody(required = false) AccountRequests.Confirm body) {
+        accounts.disconnect(current.id(), current.sessionId(), provider, body);
     }
 
     @GetMapping("/sessions")
@@ -110,7 +121,7 @@ public class AccountController {
     @ApiResponse(responseCode = "400", description = "Confirmação, senha ou código inválidos")
     public ResponseEntity<AccountService.Deletion> delete(@AuthenticationPrincipal CurrentUser current,
             @Valid @RequestBody AccountRequests.DeleteAccount body) {
-        AccountService.Deletion deletion = accounts.requestDeletion(current.id(), body);
+        AccountService.Deletion deletion = accounts.requestDeletion(current.id(), current.sessionId(), body);
         ResponseCookie cleared = ResponseCookie.from(OpenApiConfig.SESSION_COOKIE, "")
                 .httpOnly(true).secure(properties.secureCookie()).sameSite("Lax").path("/").maxAge(Duration.ZERO).build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cleared.toString()).body(deletion);

@@ -45,12 +45,26 @@ public class AdminController {
             @Size(max = 500, message = "Use no máximo 500 caracteres") String note) {
     }
 
+    public record ReserveUsername(
+            @Schema(example = "gearhub") @NotBlank @Size(max = 30) String pattern,
+            @Schema(allowableValues = {"exact", "prefix", "contains"}, description = "Padrão: exact") String matchType,
+            @Size(max = 200, message = "Use no máximo 200 caracteres") String reason) {
+    }
+
+    public record AssignUsername(
+            @Schema(description = "@ atual da conta que vai receber o nome reservado", example = "pedrolm")
+            @NotBlank @Size(max = 30) String username) {
+    }
+
     private final AdminAccess access;
     private final AdminService admin;
     private final ReportService reports;
     private final AuditService audit;
+    private final ReservedUsernameService reserved;
 
-    public AdminController(AdminAccess access, AdminService admin, ReportService reports, AuditService audit) {
+    public AdminController(AdminAccess access, AdminService admin, ReportService reports, AuditService audit,
+            ReservedUsernameService reserved) {
+        this.reserved = reserved;
         this.access = access;
         this.admin = admin;
         this.reports = reports;
@@ -84,7 +98,7 @@ public class AdminController {
     @Operation(summary = "Ficha de moderação: dados da conta, números e denúncias contra o perfil")
     public AdminService.UserFile user(@AuthenticationPrincipal CurrentUser current, @PathVariable String username) {
         access.require(current, FORBIDDEN);
-        return admin.userFile(username);
+        return admin.userFile(current.id(), username);
     }
 
     @GetMapping("/users/{username}/activity")
@@ -92,6 +106,41 @@ public class AdminController {
     public AuditService.Page activity(@AuthenticationPrincipal CurrentUser current, @PathVariable String username,
             @RequestParam(required = false) Instant before, @RequestParam(defaultValue = "50") int size) {
         access.require(current, FORBIDDEN);
-        return audit.activity(admin.userFile(username).id(), before, size);
+        return audit.activity(admin.userFile(current.id(), username).id(), before, size);
+    }
+
+    // Nomes reservados ----------------------------------------------------------
+
+    @GetMapping("/reserved-usernames")
+    @Operation(summary = "Lista os nomes reservados (marca, equipe, sistema) e a conta oficial que recebeu cada um")
+    public List<ReservedUsernameService.Reserved> reservedUsernames(@AuthenticationPrincipal CurrentUser current,
+            @Parameter(description = "Inclui reservas desativadas") @RequestParam(defaultValue = "false") boolean all) {
+        access.require(current, FORBIDDEN);
+        return reserved.list(all);
+    }
+
+    @PostMapping("/reserved-usernames")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.CREATED)
+    @Operation(summary = "Reserva um nome: ninguém mais pega no cadastro, na troca de @ ou no login social. Quem já usa continua")
+    public void reserveUsername(@AuthenticationPrincipal CurrentUser current, @Valid @RequestBody ReserveUsername body) {
+        access.require(current, FORBIDDEN);
+        reserved.reserve(current.id(), body.pattern(), body.matchType(), body.reason());
+    }
+
+    @PostMapping("/reserved-usernames/{pattern}/release")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    @Operation(summary = "Tira a reserva (exclusão lógica: o registro fica)")
+    public void releaseUsername(@AuthenticationPrincipal CurrentUser current, @PathVariable String pattern) {
+        access.require(current, FORBIDDEN);
+        reserved.release(current.id(), pattern);
+    }
+
+    @PostMapping("/reserved-usernames/{pattern}/assign")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    @Operation(summary = "Entrega um nome reservado exato a uma conta oficial: o @ dela passa a ser esse nome")
+    public void assignUsername(@AuthenticationPrincipal CurrentUser current, @PathVariable String pattern,
+            @Valid @RequestBody AssignUsername body) {
+        access.require(current, FORBIDDEN);
+        reserved.assign(current.id(), pattern, body.username());
     }
 }

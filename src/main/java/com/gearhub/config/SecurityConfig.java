@@ -3,6 +3,8 @@ package com.gearhub.config;
 import com.gearhub.auth.AuthProperties;
 import com.gearhub.auth.OriginCheckFilter;
 import com.gearhub.auth.ProblemResponse;
+import com.gearhub.auth.RateLimiter;
+import com.gearhub.auth.RequestRateLimitFilter;
 import com.gearhub.auth.SessionAuthenticationFilter;
 import com.gearhub.auth.SessionRepository;
 import org.springframework.context.annotation.Bean;
@@ -29,7 +31,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, SessionRepository sessions, AuthProperties properties)
+    SecurityFilterChain filterChain(HttpSecurity http, SessionRepository sessions, AuthProperties properties,
+            RateLimiter rateLimiter)
             throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -39,6 +42,7 @@ public class SecurityConfig {
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, exception) -> ProblemResponse.write(
                                 response, 401, "Entre na sua conta para continuar.")))
+                .addFilterBefore(new RequestRateLimitFilter(rateLimiter, properties.requestsPerMinute()), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new OriginCheckFilter(properties), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new SessionAuthenticationFilter(sessions), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
@@ -46,8 +50,15 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
-                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/2fa/verify").permitAll()
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/2fa/verify",
+                                "/api/v1/auth/confirm-email").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/google/**", "/api/v1/auth/discord/**", "/api/v1/auth/errors/*").permitAll()
+                        // Exceção à regra do login: a vitrine do marketplace (lojas, produtos, o clique e as imagens das lojas)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/marketplace/stores", "/api/v1/marketplace/stores/*",
+                                "/api/v1/marketplace/products", "/api/v1/marketplace/products/*", "/api/v1/marketplace/go/*",
+                                "/uploads/store/**").permitAll()
+                        // Pedir loja e gerenciar a loja exigem conta
+                        .requestMatchers("/api/v1/marketplace/**").authenticated()
                         // Todo o conteúdo exige conta, como X e Instagram: feed, perfis, produtos e até as fotos
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**", "/api/v1/feed", "/api/v1/products", "/api/v1/post-topics",
                                 "/api/v1/products/*", "/api/v1/hall", "/api/v1/search", "/api/v1/games", "/api/v1/games/*", "/api/v1/gear-options", "/api/v1/users/*/setup", "/api/v1/users/*/setup/photos", "/api/v1/users/*/progress", "/api/v1/users/*/games", "/api/v1/badges", "/api/v1/market/**", "/api/v1/catalog/**").authenticated()

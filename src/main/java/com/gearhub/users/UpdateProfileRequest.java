@@ -11,6 +11,7 @@ public record UpdateProfileRequest(
 
         @Size(max = 60, message = "Use no máximo 60 caracteres")
         @Pattern(regexp = "(?s).*\\S.*", message = "Informe seu nome")
+        @Pattern(regexp = "[^\\p{Cntrl}]*", message = "Use uma linha só, sem quebras")
         String displayName,
 
         @Size(max = 240, message = "Use no máximo 240 caracteres")

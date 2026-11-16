@@ -66,6 +66,29 @@ public final class AccountRequests {
         }
     }
 
+    @Schema(description = "Confirmação de uma ação sensível: a senha (quando a conta tem uma) e o código do app (com 2FA)")
+    public record Confirm(
+            @Schema(format = "password")
+            @Size(max = 128, message = "Senha muito longa")
+            String password,
+            @Size(max = 32, message = "Código inválido. Confira o app e tente de novo.")
+            String code) {
+        @Override
+        public String toString() {
+            return "Confirm[]";
+        }
+    }
+
+    public record ConfirmEmail(
+            @NotBlank(message = "Link inválido")
+            @Size(max = 200, message = "Link inválido")
+            String token) {
+        @Override
+        public String toString() {
+            return "ConfirmEmail[]";
+        }
+    }
+
     public record DeleteAccount(
             @Schema(description = "O nome de usuário, digitado para confirmar", example = "pedrolm")
             @NotBlank(message = "Digite seu nome de usuário para confirmar")

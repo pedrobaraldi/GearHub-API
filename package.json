@@ -4,7 +4,7 @@
   "description": "Atalhos npm para o Maven Wrapper. Não há dependências Node: não precisa de npm install.",
   "scripts": {
     "dev": "node scripts/mvnw.mjs spring-boot:test-run -Dspring-boot.run.mainClass=com.gearhub.LocalGearHubApplication",
-    "dev:docker": "docker compose up -d && node scripts/mvnw.mjs spring-boot:run",
+    "dev:docker": "docker compose up -d && node scripts/mvnw.mjs spring-boot:run -Dspring-boot.run.profiles=dev",
     "test": "node scripts/mvnw.mjs verify",
     "build": "node scripts/mvnw.mjs -DskipTests package"
   }

@@ -10,9 +10,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.DynamicUpdate;
 
+/**
+ * Conta. Muitas mudanças nela são feitas por SQL direto na mesma transação (restaurar a conta, 2FA,
+ * insígnias): {@link DynamicUpdate} faz o JPA gravar só as colunas que ele mesmo mudou, sem regravar
+ * por cima um valor antigo que estava em memória.
+ */
 @Entity
 @Table(name = "users")
+@DynamicUpdate
 public class User {
 
     @Id

@@ -1,6 +1,8 @@
 package com.gearhub.users;
 
 import com.gearhub.admin.AuditService;
+import com.gearhub.auth.RateLimiter;
+import com.gearhub.reviews.ContentImageService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -26,8 +28,11 @@ public class AvatarService {
     private final Path directory;
     private final UserRepository users;
     private final AuditService audit;
+    private final RateLimiter rateLimiter;
 
-    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users, AuditService audit) {
+    public AvatarService(@Value("${gearhub.uploads.dir}") String uploads, UserRepository users, AuditService audit,
+            RateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
         this.directory = Path.of(uploads, "avatars").toAbsolutePath().normalize();
         this.users = users;
         this.audit = audit;
@@ -39,6 +44,7 @@ public class AvatarService {
 
     @Transactional
     public User replace(UUID userId, MultipartFile file) {
+        limit(userId);
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
         history(user, "profile.avatar", user.getAvatarUrl(), url);
@@ -48,6 +54,7 @@ public class AvatarService {
 
     @Transactional
     public User replaceBanner(UUID userId, MultipartFile file) {
+        limit(userId);
         User user = users.findById(userId).orElseThrow();
         String url = store(file);
         history(user, "profile.banner", user.getBannerUrl(), url);
@@ -71,12 +78,20 @@ public class AvatarService {
         return user;
     }
 
+    /** Nenhum arquivo é apagado: sem limite, trocar a foto em loop encheria o disco. Mesmo balde das imagens de post. */
+    private void limit(UUID userId) {
+        rateLimiter.check(ContentImageService.UPLOAD_LIMIT_KEY + userId, ContentImageService.UPLOADS_PER_MINUTE);
+    }
+
     private String store(MultipartFile file) {
         byte[] content = read(file);
+        requireImageSize(content);
         String extension = detectExtension(content);
         if (extension == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envie uma imagem JPG, PNG ou WebP.");
         }
+        // Sem EXIF (localização GPS, aparelho), XMP e comentários: qualquer pessoa logada vê o arquivo
+        content = withoutMetadata(content, extension);
         String name = UUID.randomUUID() + "." + extension;
         try {
             Files.createDirectories(directory);
@@ -104,6 +119,24 @@ public class AvatarService {
     }
 
     /** Confere o conteúdo real do arquivo: extensão e tipo informados podem ser falsos. */
+    /** Tira os metadados da foto; arquivo corrompido é recusado. */
+    public static byte[] withoutMetadata(byte[] content, String extension) {
+        try {
+            return ImageMetadata.strip(content, extension);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Imagem inválida ou corrompida. Envie outro arquivo.");
+        }
+    }
+
+    /** Imagens até 2 MB. O limite do upload é maior (5 MB) por causa dos documentos de lojas parceiras. */
+    public static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+    public static void requireImageSize(byte[] data) {
+        if (data.length > MAX_IMAGE_BYTES) {
+            throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, "A imagem deve ter no máximo 2 MB.");
+        }
+    }
+
     public static String detectExtension(byte[] data) {
         if (data.length > 12) {
             if (startsWith(data, 0, new int[] {0xFF, 0xD8, 0xFF})) {

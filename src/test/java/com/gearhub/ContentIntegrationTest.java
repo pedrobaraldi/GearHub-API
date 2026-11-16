@@ -253,6 +253,50 @@ class ContentIntegrationTest {
                 .contains("Viper V3 Pro").doesNotContain("Wooting");
     }
 
+    @Test
+    void feedNaoPulaPublicacoesDoMesmoInstante() throws Exception {
+        Map<String, String> user = newUser();
+        for (int n = 1; n <= 3; n++) {
+            assertThat(call("POST", "/api/v1/posts", "{\"body\":\"Mesmo instante " + n + "\"}", user).statusCode())
+                    .isEqualTo(201);
+        }
+        String username = jdbc.queryForObject("""
+                SELECT u.username FROM posts p JOIN users u ON u.id = p.user_id WHERE p.body = 'Mesmo instante 1'
+                """, String.class);
+        jdbc.update("UPDATE posts SET created_at = '2026-01-01T12:00:00Z' WHERE body LIKE 'Mesmo instante %'");
+
+        // Uma por página: com o marcador só de data, as outras duas sumiriam depois da primeira
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        String cursor = null;
+        for (int page = 0; page < 5; page++) {
+            String path = "/api/v1/feed?size=1&author=" + username
+                    + (cursor == null ? "" : "&before=" + java.net.URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+            HttpResponse<String> response = call("GET", path, null, viewer());
+            assertThat(response.statusCode()).isEqualTo(200);
+            java.util.regex.Matcher body = java.util.regex.Pattern.compile("Mesmo instante \\d").matcher(response.body());
+            while (body.find()) {
+                seen.add(body.group());
+            }
+            java.util.regex.Matcher next = java.util.regex.Pattern.compile("\"nextCursor\":\"([^\"]+)\"").matcher(response.body());
+            if (!next.find()) {
+                break;
+            }
+            cursor = next.group(1);
+        }
+        assertThat(seen).containsExactlyInAnyOrder("Mesmo instante 1", "Mesmo instante 2", "Mesmo instante 3");
+
+        // Marcador antigo, só com a data, continua aceito; lixo vira 400
+        assertThat(call("GET", "/api/v1/feed?before=2026-01-01T12:00:01Z", null, viewer()).statusCode()).isEqualTo(200);
+        assertThat(call("GET", "/api/v1/feed?before=qualquer-coisa", null, viewer()).statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void buscaAchaPessoaPeloNomeSemAcento() throws Exception {
+        String body = call("GET", "/api/v1/search?q=" + java.net.URLEncoder.encode("autor", StandardCharsets.UTF_8),
+                null, viewer()).body();
+        assertThat(body).contains("\"people\":[{");
+    }
+
     private HttpResponse<String> uploadAvatar(byte[] file, Map<String, String> headers) throws Exception {
         String boundary = "limite";
         byte[] head = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.png\"\r\n"
@@ -272,14 +316,25 @@ class ContentIntegrationTest {
     @Test
     void trocaFotoEValidaOArquivoDeVerdade() throws Exception {
         Map<String, String> user = newUser();
-        byte[] png = new byte[64];
-        System.arraycopy(new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47}, 0, png, 0, 4);
+        // PNG de verdade com um bloco de texto escondido (como o GPS que celulares gravam)
+        byte[] png = com.gearhub.users.ImageMetadataTest.pngWithText("GPSLatitude=-23.55");
 
         HttpResponse<String> ok = uploadAvatar(png, user);
         assertThat(ok.statusCode()).isEqualTo(200);
         String url = ok.body().replaceAll(".*\"avatarUrl\":\"([^\"]+)\".*", "$1");
         assertThat(url).startsWith("/uploads/avatars/").endsWith(".png");
-        assertThat(call("GET", url, null, viewer()).statusCode()).isEqualTo(200);
+        HttpResponse<byte[]> stored = HTTP.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + url))
+                .headers(viewer().entrySet().stream().flatMap(entry -> java.util.stream.Stream.of(entry.getKey(), entry.getValue()))
+                        .toArray(String[]::new)).build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(stored.statusCode()).isEqualTo(200);
+        // Chega sem o texto escondido e continua sendo uma imagem válida
+        assertThat(new String(stored.body(), StandardCharsets.ISO_8859_1)).doesNotContain("GPSLatitude");
+        assertThat(javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(stored.body())).getWidth()).isEqualTo(4);
+
+        // PNG cortado no meio, como um envio que falhou
+        HttpResponse<String> broken = uploadAvatar(java.util.Arrays.copyOf(png, 60), user);
+        assertThat(broken.statusCode()).isEqualTo(400);
+        assertThat(broken.body()).contains("Imagem inválida ou corrompida");
 
         HttpResponse<String> fake = uploadAvatar("<script>alert(1)</script> nao e imagem".getBytes(StandardCharsets.UTF_8), user);
         assertThat(fake.statusCode()).isEqualTo(400);
@@ -323,6 +378,132 @@ class ContentIntegrationTest {
         Integer before = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
         call("GET", "/api/v1/auth/google/callback?code=abc&state=" + value, null, Map.of("Cookie", state));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(before);
+    }
+
+    @Test
+    void googleTiraASenhaDeQuemCriouAContaSemProvarOEmail() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String email = "vitima" + id + "@gmail.com";
+        // Alguém cria conta com o e-mail da vítima e uma senha dele (o e-mail nunca foi confirmado)
+        HttpResponse<String> attacker = call("POST", "/api/v1/auth/register", """
+                {"displayName":"Falso","username":"falso%s","email":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(id, email, PASSWORD, PASSWORD), Map.of());
+        assertThat(attacker.statusCode()).isEqualTo(201);
+        Map<String, String> attackerSession = Map.of("Cookie", attacker.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+
+        // A dona do e-mail entra pelo Google: prova que o e-mail é dela
+        googleProfile = """
+                {"sub":"%s","email":"%s","email_verified":true,"name":"Vítima"}
+                """.formatted(id, email);
+        String state = startGoogleLogin();
+        HttpResponse<String> google = call("GET", "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1], null,
+                Map.of("Cookie", state));
+        Map<String, String> ownerSession = Map.of("Cookie", google.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+
+        // A senha e a sessão de quem criou a conta deixam de valer; a dona entra
+        assertThat(call("GET", "/api/v1/auth/me", null, attackerSession).statusCode()).isEqualTo(401);
+        assertThat(call("POST", "/api/v1/auth/login", "{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}", Map.of())
+                .statusCode()).isEqualTo(401);
+        assertThat(call("GET", "/api/v1/auth/me", null, ownerSession).body()).contains("\"emailVerified\":true", "\"hasPassword\":false");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_events WHERE action = 'account.email_proven'", Integer.class))
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    /** Entra pelo Google falso e devolve o cookie de sessão. */
+    private Map<String, String> googleLogin(String subject, String email) throws Exception {
+        googleProfile = "{\"sub\":\"%s\",\"email\":\"%s\",\"email_verified\":true,\"name\":\"Pessoa\"}".formatted(subject, email);
+        String state = startGoogleLogin();
+        HttpResponse<String> back = call("GET", "/api/v1/auth/google/callback?code=abc&state=" + state.split("=", 2)[1], null,
+                Map.of("Cookie", state));
+        return Map.of("Cookie", back.headers().firstValue("set-cookie").orElseThrow().split(";")[0]);
+    }
+
+    private String usernameOf(Map<String, String> session) throws Exception {
+        return call("GET", "/api/v1/auth/me", null, session).body().replaceAll(".*\"username\":\"([^\"]+)\".*", "$1");
+    }
+
+    @Test
+    void trocaDeEmailNaoPermiteSequestrarAContaFuturaDaVitima() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String victimEmail = "alvo" + id + "@gmail.com";
+        // Atacante entra com o Google dele, cria uma senha e pede para trocar o e-mail para o da vítima
+        Map<String, String> attacker = googleLogin("atacante-" + id, "atacante" + id + "@gmail.com");
+        String attackerAccount = usernameOf(attacker);
+        assertThat(call("POST", "/api/v1/me/account/password",
+                "{\"password\":\"" + PASSWORD + "\",\"passwordConfirmation\":\"" + PASSWORD + "\"}", attacker).statusCode())
+                .isEqualTo(204);
+        assertThat(call("POST", "/api/v1/me/account/email", "{\"email\":\"" + victimEmail + "\",\"password\":\"" + PASSWORD + "\"}",
+                attacker).statusCode()).isEqualTo(202);
+
+        // Sem o link (que foi para a caixa da vítima), a conta continua com o e-mail do atacante:
+        // a vítima, ao entrar pelo Google, ganha uma conta própria, e não a do atacante
+        Map<String, String> victim = googleLogin("vitima-" + id, victimEmail);
+        assertThat(usernameOf(victim)).isNotEqualTo(attackerAccount);
+        assertThat(usernameOf(googleLogin("atacante-" + id, "atacante" + id + "@gmail.com"))).isEqualTo(attackerAccount);
+    }
+
+    @Test
+    void provarOEmailDesligaOGoogleDeQuemCriouAContaAntes() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String victimEmail = "dona" + id + "@gmail.com";
+        // Conta com o e-mail da vítima, nunca confirmado, e com o Google de outra pessoa ligado
+        // (o estado que a troca de e-mail sem confirmação permitia criar)
+        assertThat(call("POST", "/api/v1/auth/register", """
+                {"displayName":"Falso","username":"golpe%s","email":"%s","password":"%s","passwordConfirmation":"%s"}
+                """.formatted(id, victimEmail, PASSWORD, PASSWORD), Map.of()).statusCode()).isEqualTo(201);
+        Map<String, String> attacker = googleLogin("intruso-" + id, "intruso" + id + "@gmail.com");
+        String intruderAccount = usernameOf(attacker);
+        jdbc.update("UPDATE oauth_accounts SET user_id = (SELECT id FROM users WHERE username = ?) "
+                + "WHERE user_id = (SELECT id FROM users WHERE username = ?)", "golpe" + id, intruderAccount);
+
+        // A dona entra pelo Google: só a identidade dela fica ligada
+        Map<String, String> owner = googleLogin("dona-" + id, victimEmail);
+        assertThat(usernameOf(owner)).isEqualTo("golpe" + id);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM oauth_accounts WHERE user_id = (SELECT id FROM users WHERE username = ?)
+                """, Integer.class, "golpe" + id)).isEqualTo(1);
+        // O Google do intruso não abre mais a conta dela
+        assertThat(usernameOf(googleLogin("intruso-" + id, "intruso" + id + "@gmail.com"))).isNotEqualTo("golpe" + id);
+    }
+
+    @Test
+    void contaSoComGoogleSoCriaSenhaLogoDepoisDeEntrar() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        Map<String, String> session = googleLogin("antiga-" + id, "antiga" + id + "@gmail.com");
+        // Cookie antigo, como um roubado: criar senha, ativar 2FA e apagar a conta pedem entrar de novo
+        jdbc.update("UPDATE sessions SET created_at = now() - interval '1 hour' "
+                + "WHERE user_id = (SELECT id FROM users WHERE username = ?)", usernameOf(session));
+        HttpResponse<String> password = call("POST", "/api/v1/me/account/password",
+                "{\"password\":\"" + PASSWORD + "\",\"passwordConfirmation\":\"" + PASSWORD + "\"}", session);
+        assertThat(password.statusCode()).isEqualTo(403);
+        assertThat(password.body()).contains("entre de novo com Google ou Discord");
+        String secret = call("POST", "/api/v1/me/2fa/setup", null, session).body()
+                .replaceAll(".*\"secret\":\"([A-Z2-7]+)\".*", "$1");
+        assertThat(call("POST", "/api/v1/me/2fa/enable",
+                "{\"code\":\"" + com.gearhub.auth.Totp.code(secret, com.gearhub.auth.Totp.currentStep()) + "\"}", session)
+                .statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void loginSocialNaoGeraArrobaReservado() throws Exception {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String username = usernameOf(googleLogin("marca-" + id, "gearhub" + id + "@gmail.com"));
+        assertThat(username).doesNotContain("gearhub").matches("[a-z0-9]{3,30}");
+    }
+
+    @Test
+    void comentarioApagadoSomeDaNotificacao() throws Exception {
+        Map<String, String> author = newUser();
+        Map<String, String> commenter = newUser();
+        String post = call("POST", "/api/v1/posts", "{\"body\":\"Post para comentar\"}", author).body()
+                .replaceAll(".*\"id\":\"([0-9a-f-]{36})\".*", "$1");
+        String comment = call("POST", "/api/v1/posts/" + post + "/comments", "{\"body\":\"Texto que vai ser apagado\"}", commenter)
+                .body().replaceAll(".*\"id\":\"([0-9a-f-]{36})\".*", "$1");
+        assertThat(call("GET", "/api/v1/me/notifications", null, author).body()).contains("Texto que vai ser apagado");
+
+        assertThat(call("DELETE", "/api/v1/comments/" + comment, null, commenter).statusCode()).isEqualTo(204);
+        assertThat(call("GET", "/api/v1/me/notifications", null, author).body())
+                .doesNotContain("Texto que vai ser apagado").contains("Comentário apagado");
     }
 
     @Test

@@ -42,12 +42,12 @@ public class TwoFactorController {
     }
 
     @PostMapping("/enable")
-    @Operation(summary = "Confirma o primeiro código do app, ativa e devolve os códigos de recuperação",
+    @Operation(summary = "Confirma o primeiro código do app (e a senha, quando a conta tem uma), ativa e devolve os códigos de recuperação",
             description = "As outras sessões da conta são encerradas. Os códigos aparecem só nesta resposta")
     @ApiResponse(responseCode = "400", description = "Código inválido")
     public Map<String, List<String>> enable(
-            @AuthenticationPrincipal CurrentUser current, @Valid @RequestBody TwoFactorRequests.Code body) {
-        return Map.of("recoveryCodes", twoFactor.enable(current.id(), current.sessionId(), body.code()));
+            @AuthenticationPrincipal CurrentUser current, @Valid @RequestBody TwoFactorRequests.Enable body) {
+        return Map.of("recoveryCodes", twoFactor.enable(current.id(), current.sessionId(), body.password(), body.code()));
     }
 
     @PostMapping("/recovery-codes")

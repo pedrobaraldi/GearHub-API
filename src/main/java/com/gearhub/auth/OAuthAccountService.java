@@ -22,8 +22,13 @@ public class OAuthAccountService {
     private final UserRepository users;
     private final CryptoService crypto;
     private final JdbcClient jdbc;
+    private final UnprovenAccess unproven;
+    private final com.gearhub.users.UsernamePolicy usernames;
 
-    public OAuthAccountService(UserRepository users, CryptoService crypto, JdbcClient jdbc) {
+    public OAuthAccountService(UserRepository users, CryptoService crypto, JdbcClient jdbc, UnprovenAccess unproven,
+            com.gearhub.users.UsernamePolicy usernames) {
+        this.usernames = usernames;
+        this.unproven = unproven;
         this.users = users;
         this.crypto = crypto;
         this.jdbc = jdbc;
@@ -49,9 +54,10 @@ public class OAuthAccountService {
         }
         String email = profile.email().strip().toLowerCase(Locale.ROOT);
         String emailHash = crypto.blindIndex(email);
-        User user = users.findByEmailHash(emailHash)
-                .filter(found -> found.getDeletedAt() == null || found.isRestorable())
-                .orElseGet(() -> createUser(profile.name(), email, emailHash));
+        Optional<User> existing = users.findByEmailHash(emailHash)
+                .filter(found -> found.getDeletedAt() == null || found.isRestorable());
+        existing.filter(found -> found.getEmailVerifiedAt() == null).ifPresent(found -> unproven.revoke(found, true));
+        User user = existing.orElseGet(() -> createUser(profile.name(), email, emailHash));
         user.markEmailVerified();
 
         jdbc.sql("""
@@ -73,13 +79,7 @@ public class OAuthAccountService {
     }
 
     private String uniqueUsername(String email) {
-        String base = email.substring(0, email.indexOf('@')).replaceAll("[^a-z0-9]", "");
-        String candidate = base.length() < 3 ? "usuario" : truncate(base, 24);
-        while (users.existsByUsername(candidate)) {
-            candidate = truncate(base.length() < 3 ? "usuario" : base, 20)
-                    + UUID.randomUUID().toString().substring(0, 6).replace("-", "");
-        }
-        return candidate;
+        return usernames.suggest(email.substring(0, email.indexOf('@')));
     }
 
     private static String truncate(String value, int max) {

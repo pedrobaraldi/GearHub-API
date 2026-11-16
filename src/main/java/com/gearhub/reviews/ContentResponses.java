@@ -62,8 +62,8 @@ public final class ContentResponses {
         }
     }
 
-    @Schema(description = "`nextCursor` vazio indica o fim da lista")
-    public record FeedPage(List<FeedItem> items, Instant nextCursor) {
+    @Schema(description = "`nextCursor` vazio indica o fim da lista. Para a próxima página, envie-o como está em `before`")
+    public record FeedPage(List<FeedItem> items, String nextCursor) {
     }
 
     public record ProductSummary(UUID id, String slug, String name, String brand, String category, String imageUrl,

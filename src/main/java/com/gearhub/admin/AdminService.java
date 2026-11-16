@@ -33,8 +33,10 @@ public class AdminService {
     private final JdbcClient jdbc;
     private final ReportService reports;
     private final CryptoService crypto;
+    private final AuditService audit;
 
-    public AdminService(JdbcClient jdbc, ReportService reports, CryptoService crypto) {
+    public AdminService(JdbcClient jdbc, ReportService reports, CryptoService crypto, AuditService audit) {
+        this.audit = audit;
         this.jdbc = jdbc;
         this.reports = reports;
         this.crypto = crypto;
@@ -59,8 +61,8 @@ public class AdminService {
     }
 
     /** Inclui contas com exclusão pedida: a moderação precisa ver também quem saiu. */
-    @Transactional(readOnly = true)
-    public UserFile userFile(String username) {
+    @Transactional
+    public UserFile userFile(UUID adminId, String username) {
         UserFile file = jdbc.sql("""
                 SELECT u.id, u.username, u.display_name, u.role, u.level, u.two_factor_enabled_at IS NOT NULL AS two_factor,
                        u.created_at, u.deleted_at,
@@ -81,6 +83,8 @@ public class AdminService {
         // O e-mail fica criptografado no banco
         String email = jdbc.sql("SELECT email_encrypted FROM users WHERE id = :id").param("id", file.id())
                 .query(String.class).optional().map(crypto::decrypt).orElse(null);
+        // Dado pessoal visto por alguém da equipe fica registrado: quem viu, de quem e quando (LGPD)
+        audit.record(adminId, "admin.view_user", "user", file.id(), java.util.Map.of());
         return new UserFile(file.id(), file.username(), file.displayName(), email, file.role(), file.level(),
                 file.twoFactorEnabled(), file.createdAt(), file.deletedAt(), file.posts(), file.reviews(), file.comments(),
                 reports.pendingAgainst(file.id()), file.reportsMade());
