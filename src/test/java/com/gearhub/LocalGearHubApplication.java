@@ -12,8 +12,9 @@ import org.springframework.boot.SpringApplication;
 public class LocalGearHubApplication {
 
     // Fora da faixa que o Windows sorteia para conexões de saída (49152 em diante)
-    private static final int POSTGRES_PORT = 15432;
-    private static final File DATA_DIRECTORY = new File(".local-db");
+    // Outra porta e outra pasta permitem rodar uma segunda cópia (por exemplo, para testes) ao lado da principal
+    private static final int POSTGRES_PORT = Integer.parseInt(System.getenv().getOrDefault("GEARHUB_LOCAL_DB_PORT", "15432"));
+    private static final File DATA_DIRECTORY = new File(System.getenv().getOrDefault("GEARHUB_LOCAL_DB_DIR", ".local-db"));
 
     public static void main(String[] args) throws IOException {
         // Execução local: perfil de desenvolvimento (o padrão da API é produção)
