@@ -42,6 +42,7 @@ public class ContentImageService {
         rateLimiter.check(UPLOAD_LIMIT_KEY + userId, UPLOADS_PER_MINUTE);
         try {
             byte[] content = file.getBytes();
+            AvatarService.requireImageSize(content);
             String extension = AvatarService.detectExtension(content);
             if (extension == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envie uma imagem JPG, PNG ou WebP.");

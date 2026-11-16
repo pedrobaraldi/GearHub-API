@@ -111,6 +111,35 @@ public class CryptoService {
         }
     }
 
+    /** Arquivos sigilosos (documentos de parceiros): AES-256-GCM. Formato: IV (12 bytes) + dados + tag. */
+    public byte[] encryptBytes(byte[] plain) {
+        try {
+            byte[] iv = new byte[IV_BYTES];
+            random.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(AES_TRANSFORMATION);
+            cipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(TAG_BYTES * 8, iv));
+            byte[] sealed = cipher.doFinal(plain);
+            return ByteBuffer.allocate(IV_BYTES + sealed.length).put(iv).put(sealed).array();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Falha ao criptografar", e);
+        }
+    }
+
+    public byte[] decryptBytes(byte[] encrypted) {
+        if (encrypted.length < IV_BYTES + TAG_BYTES) {
+            throw new IllegalArgumentException("Arquivo criptografado inválido");
+        }
+        try {
+            Cipher cipher = Cipher.getInstance(AES_TRANSFORMATION);
+            cipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(TAG_BYTES * 8, encrypted, 0, IV_BYTES));
+            return cipher.doFinal(encrypted, IV_BYTES, encrypted.length - IV_BYTES);
+        } catch (AEADBadTagException e) {
+            throw new IllegalArgumentException("Arquivo criptografado foi adulterado", e);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Falha ao descriptografar", e);
+        }
+    }
+
     /** Token aleatório de 256 bits, seguro para cookies. */
     public String newToken() {
         byte[] token = new byte[KEY_BYTES];

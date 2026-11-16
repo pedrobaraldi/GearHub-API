@@ -66,7 +66,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE,
-                "A imagem deve ter no máximo 2 MB.");
+                "O arquivo é grande demais: imagens até 2 MB e documentos até 5 MB.");
         return handleExceptionInternal(ex, problem, headers, status, request);
     }
 

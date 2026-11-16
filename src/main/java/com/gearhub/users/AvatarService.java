@@ -85,6 +85,7 @@ public class AvatarService {
 
     private String store(MultipartFile file) {
         byte[] content = read(file);
+        requireImageSize(content);
         String extension = detectExtension(content);
         if (extension == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Envie uma imagem JPG, PNG ou WebP.");
@@ -124,6 +125,15 @@ public class AvatarService {
             return ImageMetadata.strip(content, extension);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Imagem inválida ou corrompida. Envie outro arquivo.");
+        }
+    }
+
+    /** Imagens até 2 MB. O limite do upload é maior (5 MB) por causa dos documentos de lojas parceiras. */
+    public static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+    public static void requireImageSize(byte[] data) {
+        if (data.length > MAX_IMAGE_BYTES) {
+            throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, "A imagem deve ter no máximo 2 MB.");
         }
     }
 

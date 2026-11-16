@@ -21,8 +21,9 @@ spring:
       enabled: true
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 3MB
+      # 5 MB por causa dos documentos de lojas parceiras; imagens têm o próprio limite de 2 MB no código
+      max-file-size: 5MB
+      max-request-size: 6MB
 
 server:
   port: ${PORT:8080}

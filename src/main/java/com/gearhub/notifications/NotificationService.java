@@ -182,6 +182,13 @@ public class NotificationService {
             case "comment" -> "comentou " + ("review".equals(kind) ? "na sua review" : "no seu post");
             case "reply" -> "respondeu seu comentário";
             case "follow" -> "começou a seguir você";
+            case "partner" -> switch (String.valueOf(data.get("status"))) {
+                case "approved" -> "Sua loja foi aprovada! Já dá para cadastrar produtos.";
+                case "rejected" -> "Sua solicitação de loja não foi aprovada.";
+                case "awaiting_info" -> "Precisamos de mais informações sobre a sua loja.";
+                case "in_review" -> "Sua solicitação de loja está em análise.";
+                default -> "Sua solicitação de loja foi atualizada.";
+            };
             case "rank_up" -> "founder".equals(data.get("kind"))
                     ? "Você é um dos Fundadores da GearHub!"
                     : "Você subiu para " + data.get("rank") + "!";
@@ -194,8 +201,21 @@ public class NotificationService {
         return switch (type) {
             case "follow" -> "/profile/" + actor;
             case "rank_up" -> "/niveis/" + me;
+            case "partner" -> "/marketplace/parceria";
             default -> reviewLink != null ? reviewLink : "/profile/" + me;
         };
+    }
+
+    /** Mudança na solicitação de loja: sempre avisa (não depende das preferências de notificação). */
+    @Transactional
+    public void partnerStatus(UUID userId, String status, String note) {
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("status", status);
+        if (note != null && !note.isBlank()) {
+            data.put("comment", snippet(note));
+        }
+        jdbc.sql("INSERT INTO notifications (user_id, type, data) VALUES (:user, 'partner', cast(:data AS jsonb))")
+                .param("user", userId).param("data", json.writeValueAsString(data)).update();
     }
 
     @Transactional(readOnly = true)
