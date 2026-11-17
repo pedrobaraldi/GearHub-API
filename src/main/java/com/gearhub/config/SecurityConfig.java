@@ -57,6 +57,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/marketplace/stores", "/api/v1/marketplace/stores/*",
                                 "/api/v1/marketplace/products", "/api/v1/marketplace/products/*", "/api/v1/marketplace/go/*",
                                 "/uploads/store/**").permitAll()
+                        // Anúncios: o conteúdo e o registro de impressões e cliques (sem dado pessoal)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ads/*", "/api/v1/ads/go/*", "/uploads/ads/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ads/impressions").permitAll()
                         // Pedir loja e gerenciar a loja exigem conta
                         .requestMatchers("/api/v1/marketplace/**").authenticated()
                         // Todo o conteúdo exige conta, como X e Instagram: feed, perfis, produtos e até as fotos

@@ -12,11 +12,14 @@ public class UploadsConfig implements WebMvcConfigurer {
     private final AvatarService avatars;
     private final ContentImageService images;
     private final com.gearhub.marketplace.StoreImageService storeImages;
+    private final com.gearhub.ads.AdImageService adImages;
 
-    public UploadsConfig(AvatarService avatars, ContentImageService images, com.gearhub.marketplace.StoreImageService storeImages) {
+    public UploadsConfig(AvatarService avatars, ContentImageService images, com.gearhub.marketplace.StoreImageService storeImages,
+            com.gearhub.ads.AdImageService adImages) {
         this.avatars = avatars;
         this.images = images;
         this.storeImages = storeImages;
+        this.adImages = adImages;
     }
 
     @Override
@@ -28,5 +31,7 @@ public class UploadsConfig implements WebMvcConfigurer {
         // Documentos de parceiros (partner-docs) nunca são publicados aqui: só saem pela API do admin
         registry.addResourceHandler(com.gearhub.marketplace.StoreImageService.PUBLIC_PATH + "**")
                 .addResourceLocations(storeImages.directory().toUri().toString() + "/");
+        registry.addResourceHandler(com.gearhub.ads.AdImageService.PUBLIC_PATH + "**")
+                .addResourceLocations(adImages.directory().toUri().toString() + "/");
     }
 }
