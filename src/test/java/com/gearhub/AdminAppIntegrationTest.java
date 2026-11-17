@@ -119,7 +119,40 @@ class AdminAppIntegrationTest {
         assertThat(dashboard.body().split("\"date\":").length - 1).isEqualTo(30);
         assertThat(call("GET", "/api/v1/admin/dashboard?days=7", null, token).body().split("\"date\":").length - 1).isEqualTo(7);
         // Quem não é admin não vê
-        assertThat(call("GET", "/api/v1/admin/dashboard", null, account(false).cookie()).statusCode()).isEqualTo(403);
+        Account common = account(false);
+        assertThat(call("GET", "/api/v1/admin/dashboard", null, common.cookie()).statusCode()).isEqualTo(403);
+        for (String path : List.of("/api/v1/admin/users", "/api/v1/admin/audit", "/api/v1/admin/marketplace/stores",
+                "/api/v1/admin/marketplace/products")) {
+            assertThat(call("GET", path, null, common.cookie()).statusCode()).as(path).isEqualTo(403);
+            assertThat(call("GET", path, null, token).statusCode()).as(path).isEqualTo(200);
+        }
+
+        // Lista de usuários: busca pelo @ (com ou sem @) e filtro de admins
+        assertThat(call("GET", "/api/v1/admin/users?q=@" + common.username(), null, token).body())
+                .contains("\"username\":\"" + common.username() + "\"").doesNotContain(admin.username());
+        assertThat(call("GET", "/api/v1/admin/users?filter=admin&q=" + admin.username(), null, token).body())
+                .contains(admin.username());
+        // "%" é texto, não curinga
+        assertThat(call("GET", "/api/v1/admin/users?q=%25", null, token).body()).contains("\"items\":[]");
+
+        // Conteúdo completo da pessoa: texto inteiro (sem o corte da auditoria) e o que ela apagou continua lá
+        String longText = "Texto longo do post " + "x".repeat(300);
+        String post = call("POST", "/api/v1/posts", "{\"body\":\"" + longText + "\"}", common.cookie()).body()
+                .replaceAll(".*\"id\":\"([0-9a-f-]{36})\".*", "$1");
+        call("POST", "/api/v1/posts/" + post + "/comments", "{\"body\":\"Comentário do teste\"}", common.cookie());
+        assertThat(call("DELETE", "/api/v1/posts/" + post, null, common.cookie()).statusCode()).isEqualTo(204);
+        String content = call("GET", "/api/v1/admin/users/" + common.username() + "/content", null, token).body();
+        assertThat(content).contains(longText, "Comentário do teste", "\"kind\":\"comment\"", "\"parentKind\":\"post\"");
+        assertThat(content.replaceAll(".*\"kind\":\"post\"[^}]*\"deletedAt\":(\"[^\"]+\"|null).*", "$1")).isNotEqualTo("null");
+        assertThat(call("GET", "/api/v1/admin/users/" + common.username() + "/content?kind=comment", null, token).body())
+                .doesNotContain(longText);
+        assertThat(call("GET", "/api/v1/admin/users/ninguem-aqui/content", null, token).statusCode()).isEqualTo(404);
+        assertThat(call("GET", "/api/v1/admin/users/" + common.username() + "/content", null, common.cookie()).statusCode()).isEqualTo(403);
+
+        // Auditoria geral: quem fez e o filtro pelo começo da ação
+        String audit = call("GET", "/api/v1/admin/audit?username=" + admin.username() + "&action=admin.", null, token).body();
+        assertThat(audit).contains("\"action\":\"admin.app_login\"", "\"actorUsername\":\"" + admin.username() + "\"")
+                .doesNotContain("\"action\":\"account.");
         // A ação registrada leva o aparelho
         assertThat(call("POST", "/api/v1/admin/reserved-usernames", "{\"pattern\":\"teste" + admin.username().substring(1, 7) + "\"}",
                 token).statusCode()).isEqualTo(201);

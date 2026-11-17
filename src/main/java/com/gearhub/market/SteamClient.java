@@ -31,6 +31,9 @@ public class SteamClient {
     public record Reviews(int positive, int negative, String summary) {
     }
 
+    /** A Steam manda as avaliações como JSON, mas marcadas como text/html: lê o texto e interpreta aqui. */
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+
     private final MarketProperties properties;
     private final RestClient http = com.gearhub.config.HttpClients.withTimeouts();
 
@@ -92,16 +95,19 @@ public class SteamClient {
     @SuppressWarnings("unchecked")
     public Optional<Reviews> reviews(int appid) {
         try {
-            Map<String, Object> body = http.get()
+            String text = http.get()
                     .uri(properties.storeUri() + "/appreviews/{id}?json=1&language=all&purchase_type=all&num_per_page=0", appid)
-                    .retrieve().body(JSON_MAP);
+                    .retrieve().body(String.class);
+            Map<String, Object> body = text == null || text.isBlank() ? null
+                    : JSON.readValue(text, new tools.jackson.core.type.TypeReference<Map<String, Object>>() {
+                    });
             Map<String, Object> summary = body == null ? null : (Map<String, Object>) body.get("query_summary");
             if (summary == null) {
                 return Optional.empty();
             }
             return Optional.of(new Reviews(number(summary.get("total_positive")), number(summary.get("total_negative")),
                     (String) summary.get("review_score_desc")));
-        } catch (RestClientException | ClassCastException e) {
+        } catch (RestClientException | ClassCastException | tools.jackson.core.JacksonException e) {
             log.warn("Steam: não consegui ler as avaliações do app {}: {}", appid, e.getMessage());
             return Optional.empty();
         }

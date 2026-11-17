@@ -40,11 +40,31 @@ public class AdminMarketplaceController {
     private final AdminAccess access;
     private final PartnerApplicationService applications;
     private final StoreService stores;
+    private final com.gearhub.admin.AdminListsService lists;
 
-    public AdminMarketplaceController(AdminAccess access, PartnerApplicationService applications, StoreService stores) {
+    public AdminMarketplaceController(AdminAccess access, PartnerApplicationService applications, StoreService stores,
+            com.gearhub.admin.AdminListsService lists) {
         this.access = access;
         this.applications = applications;
         this.stores = stores;
+        this.lists = lists;
+    }
+
+    @GetMapping("/stores")
+    @Operation(summary = "Todas as lojas, inclusive suspensas, com produtos e cliques dos últimos 30 dias")
+    public List<com.gearhub.admin.AdminListsService.StoreRow> storeList(@AuthenticationPrincipal CurrentUser current,
+            @Parameter(description = "active ou suspended; vazio traz todas") @RequestParam(required = false) String status) {
+        access.require(current, FORBIDDEN);
+        return lists.stores(status);
+    }
+
+    @GetMapping("/products")
+    @Operation(summary = "Produtos para moderação (até 200, os mais novos primeiro), inclusive os tirados do ar")
+    public List<com.gearhub.admin.AdminListsService.ProductRow> productList(@AuthenticationPrincipal CurrentUser current,
+            @Parameter(description = "Só desta loja") @RequestParam(required = false) String store,
+            @Parameter(description = "Só os tirados do ar") @RequestParam(defaultValue = "false") boolean removed) {
+        access.require(current, FORBIDDEN);
+        return lists.products(store, removed);
     }
 
     @GetMapping("/applications")

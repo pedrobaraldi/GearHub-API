@@ -62,11 +62,13 @@ public class AdminController {
     private final AuditService audit;
     private final ReservedUsernameService reserved;
     private final AdminDashboardService dashboard;
+    private final AdminListsService lists;
 
     public AdminController(AdminAccess access, AdminService admin, ReportService reports, AuditService audit,
-            ReservedUsernameService reserved, AdminDashboardService dashboard) {
+            ReservedUsernameService reserved, AdminDashboardService dashboard, AdminListsService lists) {
         this.reserved = reserved;
         this.dashboard = dashboard;
+        this.lists = lists;
         this.access = access;
         this.admin = admin;
         this.reports = reports;
@@ -104,6 +106,26 @@ public class AdminController {
         return Map.of("closed", reports.review(current.id(), body.kind(), body.targetId(), body.status(), body.note()));
     }
 
+    @GetMapping("/users")
+    @Operation(summary = "Lista de usuários, os mais novos primeiro; busca pelo @ ou pelo nome")
+    public AdminListsService.UserPage users(@AuthenticationPrincipal CurrentUser current,
+            @RequestParam(required = false) String q,
+            @Parameter(description = "admin, deleting (exclusão pedida) ou no2fa") @RequestParam(required = false) String filter,
+            @RequestParam(defaultValue = "0") int page) {
+        access.require(current, FORBIDDEN);
+        return lists.users(q, filter, page);
+    }
+
+    @GetMapping("/audit")
+    @Operation(summary = "Auditoria de todo o site, da mais nova para a mais antiga")
+    public AdminListsService.AuditPage audit(@AuthenticationPrincipal CurrentUser current,
+            @Parameter(description = "@ de quem fez") @RequestParam(required = false) String username,
+            @Parameter(description = "Começo da ação, por exemplo admin. ou post.") @RequestParam(required = false) String action,
+            @RequestParam(required = false) Instant before, @RequestParam(defaultValue = "50") int size) {
+        access.require(current, FORBIDDEN);
+        return lists.audit(username, action, before, size);
+    }
+
     @GetMapping("/users/{username}")
     @Operation(summary = "Ficha de moderação: dados da conta, números e denúncias contra o perfil")
     public AdminService.UserFile user(@AuthenticationPrincipal CurrentUser current, @PathVariable String username) {
@@ -117,6 +139,15 @@ public class AdminController {
             @RequestParam(required = false) Instant before, @RequestParam(defaultValue = "50") int size) {
         access.require(current, FORBIDDEN);
         return audit.activity(admin.userFile(current.id(), username).id(), before, size);
+    }
+
+    @GetMapping("/users/{username}/content")
+    @Operation(summary = "Tudo o que a pessoa escreveu (publicações, reviews e comentários), com o texto completo e o que ela apagou")
+    public AdminListsService.ContentPage content(@AuthenticationPrincipal CurrentUser current, @PathVariable String username,
+            @Parameter(description = "post, review ou comment; vazio traz tudo") @RequestParam(required = false) String kind,
+            @RequestParam(required = false) Instant before, @RequestParam(defaultValue = "50") int size) {
+        access.require(current, FORBIDDEN);
+        return lists.userContent(username, kind, before, size);
     }
 
     // Nomes reservados ----------------------------------------------------------
