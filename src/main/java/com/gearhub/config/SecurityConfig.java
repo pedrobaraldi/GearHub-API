@@ -32,7 +32,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, SessionRepository sessions, AuthProperties properties,
-            RateLimiter rateLimiter)
+            RateLimiter rateLimiter, com.gearhub.auth.AdminAppTokenService adminTokens)
             throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -45,13 +45,16 @@ public class SecurityConfig {
                 .addFilterBefore(new RequestRateLimitFilter(rateLimiter, properties.requestsPerMinute()), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new OriginCheckFilter(properties), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new SessionAuthenticationFilter(sessions), UsernamePasswordAuthenticationFilter.class)
+                // Painel de admin (programa de desktop): token só nas rotas de admin, depois do cookie (o token prevalece)
+                .addFilterAfter(new com.gearhub.auth.AdminTokenAuthenticationFilter(adminTokens), SessionAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         // Sem conta, só o que leva a ter uma: entrar (com o código de 2FA), cadastrar e recuperar a senha
                         .requestMatchers("/actuator/health", "/error").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password", "/api/v1/auth/2fa/verify",
-                                "/api/v1/auth/confirm-email").permitAll()
+                                "/api/v1/auth/confirm-email", "/api/v1/auth/admin/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/admin/logout").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/google/**", "/api/v1/auth/discord/**", "/api/v1/auth/errors/*").permitAll()
                         // Exceção à regra do login: a vitrine do marketplace (lojas, produtos, o clique e as imagens das lojas)
                         .requestMatchers(HttpMethod.GET, "/api/v1/marketplace/stores", "/api/v1/marketplace/stores/*",

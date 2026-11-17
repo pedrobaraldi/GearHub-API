@@ -139,5 +139,6 @@ public class PasswordResetService {
                 .param("user", userId).update();
         // Quem estava com a sessão aberta sai: pode ser justamente quem invadiu a conta
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", userId).update();
+        AdminAppTokenService.revokeAll(jdbc, userId);
     }
 }

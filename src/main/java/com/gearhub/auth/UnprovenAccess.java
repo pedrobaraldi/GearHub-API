@@ -35,6 +35,7 @@ public class UnprovenAccess {
             user.changePassword(null);
         }
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", user.getId()).update();
+        AdminAppTokenService.revokeAll(jdbc, user.getId());
         // Inclui a conta do Google ou Discord do próprio atacante, ligada antes de ele trocar o e-mail
         int providers = jdbc.sql("DELETE FROM oauth_accounts WHERE user_id = :user").param("user", user.getId()).update();
         jdbc.sql("UPDATE email_tokens SET used_at = now() WHERE user_id = :user AND used_at IS NULL")

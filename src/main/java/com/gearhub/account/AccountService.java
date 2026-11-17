@@ -111,6 +111,7 @@ public class AccountService {
         user.changePassword(passwords.encode(request.password()));
         users.save(user);
         signOutOthers(userId, currentSession);
+        com.gearhub.auth.AdminAppTokenService.revokeAll(jdbc, userId);
         // Um link de redefinição já enviado (talvez a uma caixa invadida) não pode desfazer esta troca
         cancelEmailLinks(userId);
         audit.record(userId, "account.password");
@@ -379,6 +380,7 @@ public class AccountService {
         jdbc.sql("UPDATE users SET deleted_at = :now WHERE id = :id")
                 .param("now", java.sql.Timestamp.from(now)).param("id", userId).update();
         jdbc.sql("DELETE FROM sessions WHERE user_id = :user").param("user", userId).update();
+        com.gearhub.auth.AdminAppTokenService.revokeAll(jdbc, userId);
         // As reviews deixam de contar na nota dos produtos enquanto a conta está apagada
         products.refreshScoresOfAuthor(userId);
         audit.record(userId, "account.delete");

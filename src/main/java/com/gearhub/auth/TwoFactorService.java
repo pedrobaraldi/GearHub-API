@@ -216,6 +216,8 @@ public class TwoFactorService {
                 WHERE id = :id
                 """).param("id", userId).update();
         jdbc.sql("DELETE FROM two_factor_recovery_codes WHERE user_id = :user").param("user", userId).update();
+        // Sem 2FA, o painel de admin fecha: ele só abre com a verificação em duas etapas
+        AdminAppTokenService.revokeAll(jdbc, userId);
         setProtectedBadge(userId, false);
         audit.record(userId, "2fa.disable");
     }

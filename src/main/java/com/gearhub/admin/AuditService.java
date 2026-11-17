@@ -47,8 +47,21 @@ public class AuditService {
                 """)
                 .param("actor", actorId, Types.OTHER).param("action", action)
                 .param("kind", targetKind, Types.VARCHAR).param("target", targetId, Types.OTHER)
-                .param("data", json.writeValueAsString(data == null ? Map.of() : data))
+                .param("data", json.writeValueAsString(withDevice(data)))
                 .update();
+    }
+
+    /** Ação feita pelo painel de admin (programa de desktop): guarda também de qual aparelho veio. */
+    private static Map<String, Object> withDevice(Map<String, Object> data) {
+        Map<String, Object> payload = data == null ? Map.of() : data;
+        if (org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                instanceof org.springframework.web.context.request.ServletRequestAttributes attributes
+                && attributes.getRequest().getAttribute(com.gearhub.auth.AdminTokenAuthenticationFilter.DEVICE_ATTRIBUTE) instanceof String device) {
+            Map<String, Object> withVia = new java.util.LinkedHashMap<>(payload);
+            withVia.put("via", device);
+            return withVia;
+        }
+        return payload;
     }
 
     public void record(UUID actorId, String action) {
