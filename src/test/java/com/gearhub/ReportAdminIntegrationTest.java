@@ -131,6 +131,26 @@ class ReportAdminIntegrationTest {
     }
 
     @Test
+    void indiceDeBuscaDePessoasFuncionaComSearchPathRestrito() {
+        // A análise automática do Postgres roda assim; antes a função do índice não achava gh_unaccent
+        String text = jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<String>) connection -> {
+            try (java.sql.Statement statement = connection.createStatement()) {
+                statement.execute("SET search_path = pg_catalog");
+                try {
+                    statement.execute("ANALYZE public.users");
+                    try (java.sql.ResultSet result = statement.executeQuery("SELECT public.gh_person_text('Joao', 'Ávila')")) {
+                        result.next();
+                        return result.getString(1);
+                    }
+                } finally {
+                    statement.execute("RESET search_path");
+                }
+            }
+        });
+        assertThat(text).isEqualTo("joao avila");
+    }
+
+    @Test
     void nomesReservadosNinguemPega() throws Exception {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         // Exato, começo e "contém"
