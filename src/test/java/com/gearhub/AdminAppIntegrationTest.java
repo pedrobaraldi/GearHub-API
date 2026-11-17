@@ -111,6 +111,15 @@ class AdminAppIntegrationTest {
 
         // Vale nas rotas de admin
         assertThat(call("GET", "/api/v1/admin/overview", null, token).statusCode()).isEqualTo(200);
+        // Painel inicial: 30 dias de série e o resumo de cada área
+        HttpResponse<String> dashboard = call("GET", "/api/v1/admin/dashboard", null, token);
+        assertThat(dashboard.statusCode()).isEqualTo(200);
+        assertThat(dashboard.body()).contains("\"community\":", "\"moderation\":", "\"marketplace\":", "\"ads\":",
+                "\"pendingByReason\":");
+        assertThat(dashboard.body().split("\"date\":").length - 1).isEqualTo(30);
+        assertThat(call("GET", "/api/v1/admin/dashboard?days=7", null, token).body().split("\"date\":").length - 1).isEqualTo(7);
+        // Quem não é admin não vê
+        assertThat(call("GET", "/api/v1/admin/dashboard", null, account(false).cookie()).statusCode()).isEqualTo(403);
         // A ação registrada leva o aparelho
         assertThat(call("POST", "/api/v1/admin/reserved-usernames", "{\"pattern\":\"teste" + admin.username().substring(1, 7) + "\"}",
                 token).statusCode()).isEqualTo(201);
@@ -144,6 +153,13 @@ class AdminAppIntegrationTest {
         assertThat(login(user.email(), PASSWORD, user.recovery().get(0)).body()).isEqualTo(message);
         assertThat(login("ninguem@exemplo.com", PASSWORD, "000000").body()).isEqualTo(message);
         assertThat(login(user.email(), PASSWORD, user.recovery().get(1)).statusCode()).isEqualTo(401);
+
+        // Estourar o limite de códigos (5 por minuto) não vira erro 500 nem revela que a senha bateu
+        for (int i = 0; i < 6; i++) {
+            HttpResponse<String> attempt = login(admin.email(), PASSWORD, "000000");
+            assertThat(attempt.statusCode()).isEqualTo(401);
+            assertThat(attempt.body()).isEqualTo(message);
+        }
     }
 
     @Test

@@ -61,10 +61,12 @@ public class AdminController {
     private final ReportService reports;
     private final AuditService audit;
     private final ReservedUsernameService reserved;
+    private final AdminDashboardService dashboard;
 
     public AdminController(AdminAccess access, AdminService admin, ReportService reports, AuditService audit,
-            ReservedUsernameService reserved) {
+            ReservedUsernameService reserved, AdminDashboardService dashboard) {
         this.reserved = reserved;
+        this.dashboard = dashboard;
         this.access = access;
         this.admin = admin;
         this.reports = reports;
@@ -76,6 +78,14 @@ public class AdminController {
     public AdminService.Overview overview(@AuthenticationPrincipal CurrentUser current) {
         access.require(current, FORBIDDEN);
         return admin.overview();
+    }
+
+    @GetMapping("/dashboard")
+    @Operation(summary = "Painel inicial: série diária (gráficos) e resumo de comunidade, moderação, marketplace e publicidade")
+    public AdminDashboardService.Dashboard dashboard(@AuthenticationPrincipal CurrentUser current,
+            @Parameter(description = "Dias da série, de 7 a 90") @RequestParam(defaultValue = "30") int days) {
+        access.require(current, FORBIDDEN);
+        return dashboard.dashboard(days);
     }
 
     @GetMapping("/reports")

@@ -69,8 +69,9 @@ public class AdminAppTokenService {
     /**
      * Senha, código do 2FA e papel de admin, tudo junto. Qualquer falha dá a mesma resposta: quem tenta não
      * descobre se o e-mail existe, se a senha bateu ou se a conta é de admin.
+     * Sem transação em volta: a checagem do código tem a sua (marca o passo usado e o código de recuperação
+     * gasto); uma falha dela dentro de outra transação virava erro 500 no commit.
      */
-    @Transactional(noRollbackFor = ResponseStatusException.class)
     public Login login(String email, String password, String code, String deviceName, String ip) {
         String emailHash = crypto.blindIndex(email.strip().toLowerCase(Locale.ROOT));
         rateLimiter.check("admin-login-ip:" + ip, properties.loginLimitPerMinute());
@@ -79,7 +80,7 @@ public class AdminAppTokenService {
         String stored = user == null || user.getPasswordHash() == null ? dummyHash : user.getPasswordHash();
         boolean matches = passwords.matches(password, stored);
         if (user == null || user.getPasswordHash() == null || !matches || !"admin".equals(user.getRole())
-                || !twoFactor.isEnabled(user.getId()) || code == null || !twoFactor.verify(user.getId(), code)) {
+                || !twoFactor.isEnabled(user.getId()) || code == null || !codeMatches(user.getId(), code)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, INVALID);
         }
         String device = deviceName == null || deviceName.isBlank() ? "Painel de admin" : deviceName.strip();
@@ -96,6 +97,21 @@ public class AdminAppTokenService {
                 .query(UUID.class).single();
         audit.record(user.getId(), "admin.app_login", "admin_app_token", id, Map.of("device", device));
         return new Login(token, expiresAt);
+    }
+
+    /**
+     * O limite de tentativas do código (5 por minuto) só é checado depois que a senha bate. Responder "muitas
+     * tentativas" ali contaria a quem tenta que acertou a senha: vira a mesma resposta de qualquer falha.
+     */
+    private boolean codeMatches(UUID userId, String code) {
+        try {
+            return twoFactor.verify(userId, code);
+        } catch (ResponseStatusException e) {
+            if (e.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                return false;
+            }
+            throw e;
+        }
     }
 
     /** Token válido: não revogado, no prazo, de uma conta ativa que ainda é admin. */
